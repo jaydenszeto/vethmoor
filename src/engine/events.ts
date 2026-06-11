@@ -1,0 +1,51 @@
+/**
+ * Typed event bus — the one-way street from simulation to UI (and decoupled
+ * system-to-system signals). The EventMap grows as systems come online; every
+ * payload is a plain serializable-ish object so the UI bridge can mirror it
+ * into zustand without touching sim internals.
+ */
+
+import type { UiMode } from './input';
+
+export type GameMode = 'boot' | 'menu' | 'chargen' | 'play' | 'dead' | 'ending';
+
+export type ToastKind = 'info' | 'skill' | 'quest' | 'warn' | 'item';
+
+export interface EventMap {
+  /** Game mode transitions (menu → play etc.). */
+  'game:mode': { mode: GameMode };
+  /** UI window stack changed (input.ts is the authority). */
+  'ui:stack': { stack: readonly UiMode[] };
+  /** Transient HUD notification. */
+  toast: { text: string; kind: ToastKind };
+  /** Pointer lock state (for pause-on-loss + cursor hints). */
+  'input:lock': { locked: boolean };
+  /** Fired by input when a gameplay hotkey is pressed (routed by Game). */
+  'input:hotkey': { slot: number };
+  /** Game clock: hour boundary crossed (schedules, ambience). */
+  'time:hour': { hour: number; day: number };
+}
+
+type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;
+
+class EventBus {
+  private handlers = new Map<keyof EventMap, Set<Handler<never>>>();
+
+  on<K extends keyof EventMap>(key: K, fn: Handler<K>): () => void {
+    let set = this.handlers.get(key);
+    if (!set) {
+      set = new Set();
+      this.handlers.set(key, set);
+    }
+    set.add(fn as Handler<never>);
+    return () => set.delete(fn as Handler<never>);
+  }
+
+  emit<K extends keyof EventMap>(key: K, payload: EventMap[K]): void {
+    const set = this.handlers.get(key);
+    if (!set) return;
+    for (const fn of set) (fn as Handler<K>)(payload);
+  }
+}
+
+export const events = new EventBus();
