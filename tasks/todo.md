@@ -6,9 +6,9 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - [completed] P1 — Walkable foggy world at dusk (noise, terrain streaming + LOD, capsule controller, sky/day-night, ocean)
 - [completed] P2 — Living wilderness (6 biomes dressed, weather FSM, roads, POIs, audio beds; blob shadows deferred to P5 with actors)
 - [completed] P3 — Towns, interiors, dungeons (towngen, load doors, room kit, dungeongen, interactables)
-- [pending] P4 — Character, items, saves, core UI (chargen, inventory/paper-doll, HUD, IndexedDB saves)
-- [pending] P5 — Combat, magic, AI, leveling (viewmodel, 8 enemies, 14 spells, use-based skills)
-- [pending] P6 — Dialogue, barter, schedules, travel, alchemy (topic hyperlinks, merchants, dune-striders)
+- [completed] P4 — Character, items, saves, core UI (chargen, inventory/paper-doll, HUD, IndexedDB saves)
+- [completed] P5 — Combat, magic, AI, leveling (viewmodel, 8 enemies, 14 spells, use-based skills)
+- [completed] P6 — Dialogue, barter, schedules, travel, alchemy (topic hyperlinks, merchants, dune-striders, books, rest/level-up rite)
 - [pending] P7 — Quests, factions, journal, maps (main quest 10–70, 3 factions, radiant duties)
 - [pending] P8 — Polish, balance, music, ship (generative soundtrack, title flourish, perf audit, README, smoke flow)
 
@@ -26,3 +26,6 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - P2: terrain road-grade limit could not be met by smoothing alone — A* paths take steep shortcuts; the fix was a forward/backward grade-clamping pass that guarantees the limit by construction.
 - P3: `mergeGeometries` requires identical attribute sets — hand-built prisms (no UV) vs Box/Cylinder (UV) broke town merges. Root cause: implicit attribute contracts; fix: merge() strips UVs (all procedural models are vertex-colored).
 - P3: interact ray failed silently when the pause stack was open (sim gated on uiOpen) — debugging UI-gated systems needs the gate state surfaced first (added dbg.closeUi).
+- P4: pointer-lock requests fail under CDP automation and the resulting lock-loss pushed the pause menu in a loop. Root cause: lock policy assumed a human Esc; fix: `input.headless` flag that disables acquisition + pause-on-loss for verification runs.
+- P5: melee hits missed short creatures — the vertical hit window was authored for humanoids. Root cause: hit volumes derived from attacker, not target proportions; widened to target-relative [y−0.7, y+h+1.0].
+- P6: NPC dialogue identity (role/town/npcKey/name) initially existed only on towngen's exterior NPCs — interior staff are materialized on a second path (WorldManager.materializeCellEntities) and silently lacked it. Root cause: two entity-creation seams, one wired. Rule: stamp identity at every materialization point; the cell id (`int:<town>:<n>`) is the seam for deriving town + stable npcKey indoors.

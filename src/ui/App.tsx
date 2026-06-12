@@ -17,6 +17,13 @@ import { InventoryWindow } from '@/ui/windows/Inventory';
 import { CharacterSheet } from '@/ui/windows/CharacterSheet';
 import { ContainerLoot } from '@/ui/windows/ContainerLoot';
 import { Spellbook } from '@/ui/windows/Spellbook';
+import { DialogueWindow } from '@/ui/windows/Dialogue';
+import { BarterWindow } from '@/ui/windows/Barter';
+import { TravelWindow } from '@/ui/windows/Travel';
+import { RestDialog } from '@/ui/windows/RestDialog';
+import { BookReader } from '@/ui/windows/BookReader';
+import { AlchemyWindow } from '@/ui/windows/Alchemy';
+import { LevelUpDialog } from '@/ui/windows/LevelUp';
 import { CombatOverlays, DeathScreen } from '@/ui/hud/CombatHud';
 
 function Prompt() {
@@ -72,6 +79,13 @@ export function App() {
       {top === 'character' && <CharacterSheet />}
       {top === 'container' && <ContainerLoot />}
       {top === 'spellbook' && <Spellbook />}
+      {top === 'dialogue' && <DialogueWindow />}
+      {top === 'barter' && <BarterWindow />}
+      {top === 'travel' && <TravelWindow />}
+      {top === 'rest' && <RestDialog />}
+      {top === 'book' && <BookReader />}
+      {top === 'alchemy' && <AlchemyWindow />}
+      {top === 'levelup' && <LevelUpDialog />}
       <Toasts />
       <Blackout />
       {import.meta.env.DEV && <DebugOverlay />}

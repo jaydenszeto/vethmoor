@@ -42,6 +42,25 @@ export function awardSkillXp(c: Character, skill: SkillId, baseXp: number): void
   }
 }
 
+/** Direct +1 skill point (skill books, trainers) with level-progress credit. */
+export function bumpSkill(c: Character, skill: SkillId): boolean {
+  if (c.skills[skill] >= 100) return false;
+  c.skills[skill]++;
+  events.emit('toast', {
+    text: `${skillName(skill)} increased to ${c.skills[skill]}`,
+    kind: 'skill',
+  });
+  if (c.major.includes(skill) || c.minor.includes(skill)) {
+    c.levelProgress++;
+    const governs = SKILL_BY_ID.get(skill)?.governs;
+    if (governs) c.attrUps[governs]++;
+  }
+  if (levelUpReady(c)) {
+    events.emit('toast', { text: 'You feel stronger — rest to advance', kind: 'quest' });
+  }
+  return true;
+}
+
 /** Travel-distance accumulator for Athletics. */
 let travelAcc = 0;
 

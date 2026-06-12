@@ -401,6 +401,8 @@ export function buildTown(townIndex: number): TownBuild {
       doorEnt.data.returnX = dx + face.x * 1.6;
       doorEnt.data.returnZ = dz + face.z * 1.6;
       doorEnt.data.returnYaw = Math.atan2(-face.x, -face.z);
+      // Shops + homes lock at night; inns and temples keep their doors open.
+      doorEnt.data.lockNight = kind !== 'inn' && kind !== 'temple';
       entities.push(doorEnt);
       ok = true;
     }
@@ -581,7 +583,7 @@ export function buildTown(townIndex: number): TownBuild {
         height: 1.78,
         prompt: spec.name,
         mesh: m,
-        data: { role: spec.role, culture: spec.culture, town: town.id },
+        data: { role: spec.role, culture: spec.culture, town: town.id, npcKey: spec.id, name: spec.name },
       }),
     );
   }

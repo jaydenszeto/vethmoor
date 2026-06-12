@@ -47,6 +47,17 @@ registerGameAPI({
   deleteSave: (slot) => deleteSave(slot),
   listSaves: () => listSaves(),
   getYaw: () => game.player.yaw,
+  chooseTopic: (id) => game.chooseTopic(id),
+  persuade: (kind) => game.persuadeWith(kind),
+  openBarter: () => game.openBarter(),
+  barterBuy: (id) => game.barterBuy(id),
+  barterSell: (id) => game.barterSell(id),
+  travelTo: (id) => void game.travelTo(id),
+  canRest: () => game.canRest(),
+  rest: (h) => game.rest(h),
+  readBook: (id) => game.readBook(id),
+  brewPotion: (ids) => game.brewPotion(ids),
+  applyLevelUp: (picks) => game.applyLevelUpPicks(picks),
   readySpell: (id) => game.combat.readySpell(id as never),
   bindHotkey: (id, slot) => {
     const c = game.character;

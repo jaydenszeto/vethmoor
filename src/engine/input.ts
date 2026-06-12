@@ -57,6 +57,8 @@ const TOGGLE_KEYS: Record<string, UiMode> = {
   KeyI: 'inventory',
   KeyV: 'character',
   KeyK: 'spellbook',
+  KeyT: 'rest',
+  KeyB: 'alchemy',
 };
 
 class InputManager {

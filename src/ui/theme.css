@@ -332,6 +332,39 @@ input[type='range'].vm-slider::-webkit-slider-thumb {
   animation: vm-fade var(--dur-l) var(--ease) both;
 }
 
+/* ============ dialogue ============ */
+
+/* [topic] hyperlink on a parchment surface */
+.vm-topic-link {
+  color: var(--ember-deep);
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 1px dotted rgba(194, 95, 29, 0.6);
+  transition: color var(--dur-s) var(--ease);
+}
+
+.vm-topic-link:hover {
+  color: #8a3c0e;
+  border-bottom-style: solid;
+}
+
+/* thin 0–100 disposition meter */
+.vm-meter {
+  position: relative;
+  height: 5px;
+  background: var(--iron-0);
+  border: 1px solid var(--edge);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.vm-meter > i {
+  position: absolute;
+  inset: 0;
+  right: auto;
+  background: linear-gradient(90deg, var(--verdigris-dim), var(--verdigris));
+  transition: width var(--dur-m) var(--ease);
+}
+
 /* ============ HUD bits ============ */
 
 .vm-crosshair {

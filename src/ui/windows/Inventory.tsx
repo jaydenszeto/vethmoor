@@ -134,6 +134,11 @@ export function InventoryWindow() {
                         Drink
                       </button>
                     )}
+                    {def.book && (
+                      <button type="button" className="vm-btn-frame" style={{ padding: '1px 8px', fontSize: 'var(--text-xs)' }} onClick={() => gameApi().readBook(def.id)}>
+                        Read
+                      </button>
+                    )}
                   </span>
                 </div>
               ))}

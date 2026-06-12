@@ -52,6 +52,8 @@ export interface Character {
   equipment: Record<EquipSlot, ItemId | null>;
   spellsKnown: string[];
   hotkeys: (string | null)[];
+  topicsKnown: string[];
+  booksRead: string[];
 }
 
 const EMPTY_EQUIP: Record<EquipSlot, ItemId | null> = {
@@ -131,6 +133,8 @@ export function createCharacter(
       null,
       null,
     ],
+    topicsKnown: [],
+    booksRead: [],
   };
   recalcDerived(c, true);
   return c;

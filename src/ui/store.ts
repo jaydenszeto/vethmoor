@@ -37,6 +37,37 @@ export interface ContainerView {
   items: { id: string; n: number }[];
 }
 
+export interface DialogueView {
+  npcKey: string;
+  name: string;
+  role: string;
+  disposition: number;
+  log: { topic: string | null; text: string }[];
+  topics: { id: string; keyword: string }[];
+  canBarter: boolean;
+}
+
+export interface BarterView {
+  npcKey: string;
+  name: string;
+  merchantGold: number;
+  playerGold: number;
+  stock: { id: string; n: number; price: number }[];
+  goods: { id: string; n: number; price: number }[];
+  line: string | null;
+}
+
+export interface TravelView {
+  from: string;
+  options: { id: string; name: string; km: number; fare: number; hours: number; tagline: string }[];
+}
+
+export interface BookView {
+  title: string;
+  text: string;
+  note: string | null;
+}
+
 interface UiState {
   gameMode: GameMode;
   uiStack: readonly UiMode[];
@@ -50,6 +81,10 @@ interface UiState {
   /** Bumped on char:changed so inventory/sheet re-read the live character. */
   charVersion: number;
   container: ContainerView | null;
+  dialogue: DialogueView | null;
+  barter: BarterView | null;
+  travel: TravelView | null;
+  book: BookView | null;
   saves: SaveMeta[];
   setSettings: (partial: Partial<GameSettings>) => void;
   dismissToast: (id: number) => void;
@@ -67,6 +102,10 @@ export const useUi = create<UiState>()((set) => ({
   hud: { hp: 1, hpMax: 1, mp: 1, mpMax: 1, fat: 1, fatMax: 1, enc: 0, encMax: 1, levelReady: false },
   charVersion: 0,
   container: null,
+  dialogue: null,
+  barter: null,
+  travel: null,
+  book: null,
   saves: [],
   setSettings: (partial) =>
     set((s) => {
@@ -110,6 +149,22 @@ export interface GameAPI {
   getYaw(): number;
   readySpell(id: SpellIdLike): void;
   bindHotkey(id: SpellIdLike, slot: number): void;
+  // ----- P6: dialogue / barter / travel / rest / books / alchemy ----------------
+  /** Click a [topic] hyperlink or list entry in the open dialogue. */
+  chooseTopic(topicId: string): void;
+  persuade(kind: 'admire' | 'intimidate' | 'bribe10' | 'bribe50'): void;
+  /** Switch the open dialogue into the barter window. */
+  openBarter(): void;
+  barterBuy(id: ItemId): void;
+  barterSell(id: ItemId): void;
+  travelTo(townId: string): void;
+  /** Rest gate — RestDialog reads this on mount. */
+  canRest(): { ok: boolean; reason: string };
+  rest(hours: number): void;
+  readBook(id: ItemId): void;
+  /** Combine 2–4 ingredients; returns the result line for the window. */
+  brewPotion(ids: ItemId[]): string;
+  applyLevelUp(picks: readonly [string, string, string]): void;
 }
 
 /** Branded SpellId without importing the data layer into every consumer. */
@@ -139,6 +194,10 @@ export function initUiBridge(): void {
   events.on('hud:stats', (hud) => useUi.setState({ hud }));
   events.on('char:changed', () => useUi.setState((s) => ({ charVersion: s.charVersion + 1 })));
   events.on('container:open', (c) => useUi.setState({ container: c }));
+  events.on('dialogue:state', (d) => useUi.setState({ dialogue: d }));
+  events.on('barter:state', (b) => useUi.setState({ barter: b }));
+  events.on('travel:open', (t) => useUi.setState({ travel: t }));
+  events.on('book:open', (b) => useUi.setState({ book: b }));
   events.on('toast', ({ text, kind }) =>
     useUi.setState((s) => ({
       toasts: [...s.toasts.slice(-3), { id: toastId++, text, kind }],

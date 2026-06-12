@@ -11,7 +11,7 @@ import { events } from '@/engine/events';
 import { aabb, type Aabb } from '@/engine/math';
 import type { CollisionQuery } from '@/engine/collision';
 import { StaticColliders } from '@/engine/spatialHash';
-import { Sfc32, seedOf } from '@/engine/rng';
+import { Sfc32, seedOf, xmur3 } from '@/engine/rng';
 import { cellId as asCellId, seedPathId, type CellId } from '@/data/ids';
 import { DUNGEONS } from '@/data/dungeons';
 import { TOWNS } from '@/data/towns';
@@ -20,6 +20,8 @@ import { box, limb, merge, paint, paintGradient, vertexColorMaterial } from '@/g
 import { blob } from '@/gen/models/primitives';
 import { buildTown } from '@/gen/towngen';
 import { registerDungeons } from '@/gen/dungeongen';
+import { makeHumanoidGeo, type NpcRole } from '@/gen/models/humanoid';
+import { makeName, rollCulture } from '@/gen/names';
 import { buildCell, cellFloorAt, hasCellFactory, specToEntity, type BuiltCell } from './cells';
 import type { ChunkManager } from './chunks';
 import { worldHeight } from './terrain';
@@ -62,6 +64,12 @@ export class WorldManager {
   onCellChanged: ((interior: BuiltCell | null) => void) | null = null;
   /** Game opens the loot UI; falls back to a toast if unset. */
   onContainerOpen: ((e: Entity) => void) | null = null;
+  /** Game opens dialogue; fallback toast if unset. */
+  onNpcTalk: ((e: Entity) => void) | null = null;
+  /** Game opens the travel window. */
+  onTravel: ((e: Entity) => void) | null = null;
+  /** Current hour (for shop locks) — pushed by Game each hour. */
+  hourNow = 12;
 
   /** Last exterior door position (for saves while inside). */
   get returnPoint(): { x: number; z: number; yaw: number } {
@@ -120,6 +128,7 @@ export class WorldManager {
       s.entities = built.entities;
       for (const c of built.colliders) this.exteriorColliders.add(c, s.key);
       this.wireEntities(s.entities);
+      this.applySchedules(this.hourNow); // a town loaded at night loads asleep
     } else {
       const built = buildDungeonEntrance(s.index);
       s.group = built.group;
@@ -147,6 +156,13 @@ export class WorldManager {
     for (const e of ents) {
       if (e.kind === 'door' && e.data.cell) {
         e.onInteract = () => {
+          // Shops lock for the night (inns and temples stay open).
+          const lockable = e.data.lockNight === true;
+          const night = this.hourNow >= 20 || this.hourNow < 8;
+          if (lockable && night) {
+            events.emit('toast', { text: 'Locked for the night. Dawn opens doors.', kind: 'info' });
+            return;
+          }
           const t: DoorTarget = {
             cell: e.data.cell as CellId,
             returnX: (e.data.returnX as number) ?? e.x,
@@ -163,14 +179,42 @@ export class WorldManager {
         };
       } else if (e.kind === 'npc') {
         e.onInteract = () => {
-          const rng = new Sfc32(seedOf('npc-greet', e.id.length, (e.x | 0) + (e.z | 0)));
-          const line = rng.pick(GREETINGS);
-          events.emit('toast', { text: `${e.prompt}: “${line}”`, kind: 'info' });
+          if (this.onNpcTalk) this.onNpcTalk(e);
+          else {
+            const rng = new Sfc32(seedOf('npc-greet', e.id.length, (e.x | 0) + (e.z | 0)));
+            events.emit('toast', { text: `${e.prompt}: “${rng.pick(GREETINGS)}”`, kind: 'info' });
+          }
         };
       } else if (e.kind === 'marker' && e.data.travel) {
         e.onInteract = () => {
-          events.emit('toast', { text: 'The dune-strider snorts. Caravans run in P6.', kind: 'info' });
+          if (this.onTravel) this.onTravel(e);
+          else events.emit('toast', { text: 'The dune-strider snorts patiently.', kind: 'info' });
         };
+      }
+    }
+  }
+
+  /** Day/night schedules: villagers head home at night; shop doors lock. */
+  applySchedules(hour: number): void {
+    this.hourNow = hour;
+    const night = hour >= 20 || hour < 8;
+    for (const s of this.sites) {
+      if (!s.group || s.kind !== 'town') continue;
+      for (const e of s.entities) {
+        if (e.kind !== 'npc') continue;
+        const role = e.data.role as string;
+        const sleeps = role !== 'guard' && role !== 'innkeep';
+        const hidden = night && sleeps;
+        if (e.mesh) e.mesh.visible = !hidden;
+        e.data.asleep = hidden;
+        // Hidden NPCs can't be interacted with.
+        if (hidden && !e.data.savedInteract && e.onInteract) {
+          e.data.savedInteract = e.onInteract as unknown;
+          e.onInteract = null;
+        } else if (!hidden && e.data.savedInteract) {
+          e.onInteract = e.data.savedInteract as (ent: Entity) => void;
+          e.data.savedInteract = undefined;
+        }
       }
     }
   }
@@ -245,9 +289,28 @@ export class WorldManager {
           else events.emit('toast', { text: 'It will not open.', kind: 'info' });
         };
       } else if (spec.kind === 'npc') {
-        e.prompt = tag === 'npc:innkeep' ? 'Innkeeper' : tag === 'npc:trader' ? 'Trader' : tag === 'npc:priest' ? 'Priest' : 'Stranger';
+        // Interior staff: seeded identity keyed to the cell so name/disposition/
+        // merchant stock survive re-entry and saves.
+        const role = (tag.startsWith('npc:') ? tag.slice(4) : 'villager') as NpcRole;
+        const idStr = cell.id as string;
+        const townId = idStr.startsWith('int:') ? idStr.split(':')[1] : undefined;
+        const rng = new Sfc32(seedOf('cell-npc', xmur3(idStr)(), i));
+        const culture = rollCulture(rng);
+        const name = makeName(rng, culture);
+        e.prompt = name;
+        e.data.role = role;
+        e.data.culture = culture;
+        e.data.town = townId;
+        e.data.npcKey = `${idStr}:${tag}`;
+        e.data.name = name;
+        const body = new THREE.Mesh(makeHumanoidGeo(rng, role, culture), vertexColorMaterial());
+        body.position.set(spec.x, spec.y, spec.z);
+        body.rotation.y = spec.rotY;
+        cell.group.add(body);
+        e.mesh = body;
         e.onInteract = () => {
-          events.emit('toast', { text: `${e.prompt}: “Welcome, traveler.”`, kind: 'info' });
+          if (this.onNpcTalk) this.onNpcTalk(e);
+          else events.emit('toast', { text: `${name}: “Welcome, traveler.”`, kind: 'info' });
         };
       }
       return e;

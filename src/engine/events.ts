@@ -54,6 +54,33 @@ export interface EventMap {
   'hud:spell': { name: string | null };
   /** Conjuration asks the spawn system for an ash servant. */
   'summon:request': { duration: number };
+  /** Full dialogue view (pushed on open + after every topic/persuade). */
+  'dialogue:state': {
+    npcKey: string;
+    name: string;
+    role: string;
+    disposition: number;
+    log: { topic: string | null; text: string }[];
+    topics: { id: string; keyword: string }[];
+    canBarter: boolean;
+  };
+  /** Full barter view (pushed on open + after every deal). */
+  'barter:state': {
+    npcKey: string;
+    name: string;
+    merchantGold: number;
+    playerGold: number;
+    stock: { id: string; n: number; price: number }[];
+    goods: { id: string; n: number; price: number }[];
+    line: string | null;
+  };
+  /** Travel window contents. */
+  'travel:open': {
+    from: string;
+    options: { id: string; name: string; km: number; fare: number; hours: number; tagline: string }[];
+  };
+  /** Book reader contents (note = "+1 Blade" style teach line). */
+  'book:open': { title: string; text: string; note: string | null };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;
