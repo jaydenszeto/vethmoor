@@ -5,12 +5,16 @@
   "type": "module",
   "description": "Vethmoor — a browser open-world RPG in the spirit of Daggerfall and Morrowind. 100% procedural assets.",
   "scripts": {
+    "start": "vite --open",
     "dev": "vite",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "react": "^18.3.1",

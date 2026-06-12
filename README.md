@@ -9,10 +9,20 @@ the sky remembers.
 files — the whole world (meshes, ground atlas, bitmap display font, books, soundtrack) is
 synthesized from code and one seed string at boot.
 
-```
+## Quick start
+
+Needs [Node.js](https://nodejs.org) 20+. Then:
+
+```bash
+git clone https://github.com/jaydenszeto/vethmoor.git
+cd vethmoor
 npm install
-npm run dev        # → http://localhost:5173
+npm start          # builds nothing, opens http://localhost:5173 in your browser
 ```
+
+That's it — `npm start` launches the dev server and pops the game open in your default
+browser. (`npm run dev` does the same without auto-opening.) Click the canvas to capture the
+mouse, roll a character, and walk out the gate.
 
 `npm run typecheck` and `npm test` (62 tests) must both be green before any commit.
 
