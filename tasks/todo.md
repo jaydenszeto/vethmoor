@@ -9,7 +9,7 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - [completed] P4 — Character, items, saves, core UI (chargen, inventory/paper-doll, HUD, IndexedDB saves)
 - [completed] P5 — Combat, magic, AI, leveling (viewmodel, 8 enemies, 14 spells, use-based skills)
 - [completed] P6 — Dialogue, barter, schedules, travel, alchemy (topic hyperlinks, merchants, dune-striders, books, rest/level-up rite)
-- [pending] P7 — Quests, factions, journal, maps (main quest 10–70, 3 factions, radiant duties)
+- [completed] P7 — Quests, factions, journal, maps (main quest 10–70 + both endings, 3 factions ×4 authored quests + radiant duties, journal/map windows, Conclave portal)
 - [pending] P8 — Polish, balance, music, ship (generative soundtrack, title flourish, perf audit, README, smoke flow)
 
 ## hero moments (budgeted, restraint elsewhere)
@@ -29,3 +29,6 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - P4: pointer-lock requests fail under CDP automation and the resulting lock-loss pushed the pause menu in a loop. Root cause: lock policy assumed a human Esc; fix: `input.headless` flag that disables acquisition + pause-on-loss for verification runs.
 - P5: melee hits missed short creatures — the vertical hit window was authored for humanoids. Root cause: hit volumes derived from attacker, not target proportions; widened to target-relative [y−0.7, y+h+1.0].
 - P6: NPC dialogue identity (role/town/npcKey/name) initially existed only on towngen's exterior NPCs — interior staff are materialized on a second path (WorldManager.materializeCellEntities) and silently lacked it. Root cause: two entity-creation seams, one wired. Rule: stamp identity at every materialization point; the cell id (`int:<town>:<n>`) is the seam for deriving town + stable npcKey indoors.
+- P7: `dbg.kill` set actor state to dead but skipped `onActorDeath`, so quest kill-triggers silently never fired under verification. Root cause: the real kill paths (combat/projectiles) call the death callback explicitly after `takeDamage`; any new damage source must do the same.
+- P7: CDP page-level `import('/src/...')` returns a DIFFERENT module instance than the app's `?t=`-stamped HMR modules — state read through it is a phantom. Verify only through `window.dbg`/the UI.
+- P7: starting a New Game while the previous session sat inside an interior left the world in interior mode under the fresh character — `finishChargen` now exits the cell first (loadSlot already did).

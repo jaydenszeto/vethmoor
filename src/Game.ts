@@ -56,7 +56,7 @@ import {
   type Character,
 } from '@/systems/stats';
 import { bumpSkill, trackTravel } from '@/systems/skills';
-import { linkedTopics, topicText, visibleTopics, type NpcIdentity } from '@/systems/dialogue';
+import { linkedTopics, topicDefFor, topicText, visibleTopics, type NpcIdentity } from '@/systems/dialogue';
 import {
   getDisposition,
   persuade as persuadeNpc,
@@ -75,11 +75,47 @@ import {
   type MerchantState,
 } from '@/systems/barter';
 import { brew } from '@/systems/alchemy';
+import {
+  journalView,
+  questFlag,
+  questStage,
+  restoreQuests,
+  serializeQuests,
+  setQuestFlag,
+  setQuestStage,
+  validateQuests,
+  type QuestSave,
+} from '@/systems/quests';
+import {
+  activeDuty,
+  addRep,
+  canPromote,
+  clearDuty,
+  dutyDone,
+  factionDispositionBonus,
+  factionJoined,
+  factionRank,
+  factionRep,
+  joinFaction,
+  onKillForFactions,
+  bumpKillCount,
+  promote,
+  rankTitle,
+  restoreFactions,
+  serializeFactions,
+  startDuty,
+  type FactionId,
+  type FactionSave,
+} from '@/systems/factions';
+import { setDispositionBonusProvider } from '@/systems/disposition';
+import { FACTIONS } from '@/data/factions';
 import { BOOK_TEXTS } from '@/data/books';
-import { TOPICS, type GameView } from '@/data/topics';
+import { TOPICS, type GameView, type TopicFx } from '@/data/topics';
+import { DUNGEONS } from '@/data/dungeons';
+import { roadSegments } from '@/world/roads';
 import { skillName, type AttrId } from '@/data/skillsDef';
 import type { NpcRole } from '@/gen/models/humanoid';
-import { addItem, encumbrance } from '@/systems/inventory';
+import { addItem, encumbrance, removeItem } from '@/systems/inventory';
 import { containerContents, restoreContainers, clearContainers, serializeContainers } from '@/systems/loot';
 import {
   latestSave,
@@ -109,6 +145,78 @@ const SPAWN = { x: 1825, z: 9745, yaw: -Math.PI * 0.38 };
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+/** Bake the parchment world map once (lazy, ~37k height samples). */
+function bakeWorldMap(): string {
+  const N = 192;
+  const canvas = document.createElement('canvas');
+  canvas.width = N;
+  canvas.height = N;
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const img = ctx.createImageData(N, N);
+  const w: number[] = [0, 0, 0, 0, 0, 0];
+  for (let py = 0; py < N; py++) {
+    for (let px = 0; px < N; px++) {
+      const x = ((px + 0.5) / N) * WORLD_SIZE;
+      const z = ((py + 0.5) / N) * WORLD_SIZE;
+      const h = worldHeight(x, z);
+      let r: number;
+      let g: number;
+      let b: number;
+      if (h < 0.3) {
+        // Sea — deeper gets darker.
+        const d = clamp(-h / 30, 0, 1);
+        r = 24 - 10 * d;
+        g = 41 - 16 * d;
+        b = 48 - 14 * d;
+      } else {
+        biomeWeightsAt(x, z, w);
+        r = 0;
+        g = 0;
+        b = 0;
+        for (let i = 0; i < 6; i++) {
+          const c = BIOMES[BIOME_ORDER[i] as BiomeId].mapColor;
+          const wi = w[i] as number;
+          r += wi * ((c >> 16) & 255);
+          g += wi * ((c >> 8) & 255);
+          b += wi * (c & 255);
+        }
+        // Height shading: valleys dim, ridges catch the light.
+        const shade = 0.55 + 0.65 * clamp(h / 420, 0, 1);
+        r *= shade;
+        g *= shade;
+        b *= shade;
+      }
+      const o = (py * N + px) * 4;
+      img.data[o] = r;
+      img.data[o + 1] = g;
+      img.data[o + 2] = b;
+      img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Roads: faint worn lines.
+  ctx.strokeStyle = 'rgba(58, 44, 28, 0.9)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (const s of roadSegments()) {
+    ctx.moveTo((s.ax / WORLD_SIZE) * N, (s.az / WORLD_SIZE) * N);
+    ctx.lineTo((s.bx / WORLD_SIZE) * N, (s.bz / WORLD_SIZE) * N);
+  }
+  ctx.stroke();
+  return canvas.toDataURL();
+}
+
+/** Boss-kill quest triggers, keyed by interior cell id. */
+const BOSS_QUESTS: Record<string, { quest: string; give?: string }> = {
+  'dgn:sunken-watch': { quest: 'vigil-2' },
+  'dgn:graverold-barrows': { quest: 'vigil-3', give: 'vigil-paychest-gold' },
+  'dgn:hollow-of-teeth': { quest: 'vigil-4' },
+  'dgn:ashfall-vault': { quest: 'conclave-2', give: 'recording-crystal' },
+  'dgn:choirs-descent': { quest: 'conclave-4', give: 'choir-relic' },
+  'dgn:old-margrave-mine': { quest: 'skarn-2' },
+  'dgn:kragdeep-galleries': { quest: 'skarn-3' },
+};
 
 const biomeW: number[] = [0, 0, 0, 0, 0, 0];
 
@@ -166,7 +274,10 @@ export class Game {
   }
 
   async boot(): Promise<void> {
-    if (import.meta.env.DEV) validateItems();
+    if (import.meta.env.DEV) {
+      validateItems();
+      validateQuests();
+    }
     bakeTextures();
     initRoads(); // must precede any height-grid builds
     installAudioUnlock();
@@ -205,6 +316,10 @@ export class Game {
       // Actors don't cross cell boundaries.
       this.spawns.clearAll();
       if (cell) this.spawns.populateCell(cell, this.world.query);
+      // Main quest: stepping into the Undertooth is the point of no return.
+      if (cell && (cell.id as string) === 'dgn:undertooth' && questStage('main') >= 50) {
+        this.advanceQuest('main', 60);
+      }
       // Autosave on every cell transition (the Morrowind safety net).
       if (!this.restoring && this.character && this.mode === 'play') {
         void this.saveSlot('auto', 'Autosave');
@@ -221,6 +336,38 @@ export class Game {
     this.world.onNpcTalk = (e) => this.openDialogue(e);
     this.world.onTravel = (e) => this.openTravel(e);
     events.on('time:hour', ({ hour }) => this.world.applySchedules(hour));
+    setDispositionBonusProvider(factionDispositionBonus);
+
+    this.world.onQuestMarker = (e, tag) => {
+      if (tag === 'quest:tablets') {
+        // One-shot pedestal: gone once the tablets are anyone's.
+        const taken = questStage('main') >= 30 || this.gameView().hasItem('vargen-tablets');
+        if (taken) return;
+        e.prompt = 'The Vargen Tablets';
+        e.onInteract = () => {
+          const c = this.character;
+          if (!c || this.gameView().hasItem('vargen-tablets')) return;
+          addItem(c, itemId('vargen-tablets'), 1);
+          events.emit('toast', { text: 'Took: The Vargen Tablets — warm, and heavier than clay should be.', kind: 'item' });
+          if (questStage('main') >= 20) this.advanceQuest('main', 30);
+          e.onInteract = null;
+          e.prompt = null;
+        };
+      } else if (tag === 'quest:throne') {
+        e.prompt = 'The Drowned Throne';
+        e.onInteract = () => {
+          const s = questStage('main');
+          if (s >= 70) {
+            events.emit('toast', { text: 'The hall is quiet now. The chair remembers you.', kind: 'info' });
+          } else if (s < 65) {
+            events.emit('toast', { text: 'The Herald’s presence crushes the air. It must fall first.', kind: 'warn' });
+          } else {
+            input.pushMode('ending');
+            events.emit('ending:open', { phase: 'choice' });
+          }
+        };
+      }
+    };
 
     events.on('input:hotkey', ({ slot }) => {
       if (this.mode !== 'play') return;
@@ -286,12 +433,19 @@ export class Game {
     this.setMode('chargen');
   }
 
-  finishChargen(name: string, race: Culture, classId: string, stone: BirthStone): void {
+  async finishChargen(name: string, race: Culture, classId: string, stone: BirthStone): Promise<void> {
+    // A previous session may have ended inside an interior cell.
+    if (this.world.isInterior) await this.world.exitInterior();
     this.character = createCharacter(name || 'The Writ-Bearer', race, classId, stone);
     clearContainers();
     restoreDispositions({});
     restoreMerchants({});
+    restoreQuests(undefined);
+    restoreFactions(undefined);
+    this.world.discovered.clear();
+    addItem(this.character, itemId('sealed-writ'), 1);
     this.clock.set(1, NEW_GAME_HOUR * 60);
+    this.advanceQuest('main', 10);
     this.world.applySchedules(Math.floor(this.clock.hour));
     this.player.spawnAt(SPAWN.x, SPAWN.z, SPAWN.yaw, this.world.query);
     this.warmup(SPAWN.x, SPAWN.z, 1500);
@@ -341,6 +495,9 @@ export class Game {
         killed: this.spawns.serialize(),
         disp: serializeDispositions(),
         merchants: serializeMerchants(),
+        quests: serializeQuests(),
+        factions: serializeFactions(),
+        discovered: [...this.world.discovered],
       },
     };
   }
@@ -367,9 +524,15 @@ export class Game {
     this.spawns.restore((save.ext.killed as string[] | undefined) ?? []);
     restoreDispositions((save.ext.disp as Record<string, number> | undefined) ?? {});
     restoreMerchants((save.ext.merchants as Record<string, MerchantState> | undefined) ?? {});
+    restoreQuests(save.ext.quests as QuestSave | undefined);
+    restoreFactions(save.ext.factions as FactionSave | undefined);
+    this.world.discovered.clear();
+    for (const k of (save.ext.discovered as string[] | undefined) ?? []) this.world.discovered.add(k);
     this.effects.clear();
     this.combat.readySpell(null);
     this.clock.set(save.clock.day, save.clock.minOfDay);
+    // Pre-P7 saves: the main quest starts where the player already stands.
+    if (questStage('main') === 0) this.advanceQuest('main', 10);
     this.world.applySchedules(Math.floor(this.clock.hour));
     if (this.world.isInterior) await this.world.exitInterior();
 
@@ -540,13 +703,51 @@ export class Game {
     if (died) this.die();
   }
 
-  private onActorDeath(a: EnemyActor): void {
+  onActorDeath(a: EnemyActor): void {
     enemyDie(a.def.voice);
     this.spawns.onDeath(a, (ent) => {
       ent.onInteract = () => this.world.onContainerOpen?.(ent);
       this.world.dynamicEntities.push(ent);
     });
     events.emit('hud:target', { name: null, frac: 0 });
+    this.onQuestKill(a);
+  }
+
+  /** Quest triggers that hang off kills. */
+  private onQuestKill(a: EnemyActor): void {
+    if (a.friendly) return;
+    const id = a.def.id as string;
+    onKillForFactions(id);
+    if (id === 'bandit' && questStage('vigil-1') === 10) {
+      const n = bumpKillCount('vigil-1');
+      events.emit('toast', { text: `Gullcliff bandits: ${Math.min(n, 3)}/3`, kind: 'quest' });
+      if (n >= 3) this.advanceQuest('vigil-1', 20);
+    }
+    if (id === 'herald' && questStage('main') >= 60) {
+      this.advanceQuest('main', 65);
+    }
+    if (a.isBoss && this.world.interior) {
+      const trigger = BOSS_QUESTS[this.world.interior.id as string];
+      if (trigger && questStage(trigger.quest) === 10) {
+        this.advanceQuest(trigger.quest, 20);
+        if (trigger.give && this.character) {
+          addItem(this.character, itemId(trigger.give), 1);
+          events.emit('toast', { text: `Took: ${itemDef(itemId(trigger.give)).name}`, kind: 'item' });
+        }
+      }
+    }
+  }
+
+  // ----- the Drowned Throne -----------------------------------------------------
+
+  chooseEnding(kind: 'sever' | 'rebind'): void {
+    if (questStage('main') < 65 || questStage('main') >= 70) return;
+    setQuestFlag(`ending:${kind}`);
+    this.advanceQuest('main', 70);
+    // The sky carries the verdict home.
+    this.setWeather(kind === 'sever' ? 'clear' : 'ashstorm');
+    events.emit('ending:open', { phase: kind });
+    void this.saveSlot('auto', 'Autosave');
   }
 
   private die(): void {
@@ -630,7 +831,24 @@ export class Game {
   private dlg: { npc: NpcIdentity; log: { topic: string | null; text: string }[] } | null = null;
 
   private gameView(): GameView {
-    return { day: this.clock.day, hour: this.clock.hour, questStage: () => 0 };
+    const c = this.character;
+    return {
+      day: this.clock.day,
+      hour: this.clock.hour,
+      questStage: (id) => questStage(id),
+      questFlag: (id) => questFlag(id),
+      hasItem: (id, n = 1) => {
+        const s = c?.inventory.find((x) => (x.id as string) === id);
+        return (s?.n ?? 0) >= n;
+      },
+      factionJoined: (f) => factionJoined(f as FactionId),
+      factionRank: (f) => factionRank(f as FactionId),
+      canPromote: (f) => canPromote(f as FactionId),
+      duty: (f) => {
+        const d = activeDuty(f as FactionId);
+        return d ? { done: dutyDone(d) } : null;
+      },
+    };
   }
 
   private npcIdentityOf(e: Entity): NpcIdentity {
@@ -688,11 +906,136 @@ export class Game {
     const c = this.character;
     if (!dlg || !c) return;
     if (!c.topicsKnown.includes(topicId)) c.topicsKnown.push(topicId);
-    const text =
-      topicText(dlg.npc, topicId, this.gameView()) ??
-      `${dlg.npc.name} shrugs. “Couldn’t tell you. Ask around.”`;
+    const view = this.gameView();
+    const def = topicDefFor(dlg.npc, topicId, view);
+    const text = def
+      ? topicText(dlg.npc, topicId, view) ?? '“…”'
+      : `${dlg.npc.name} shrugs. “Couldn’t tell you. Ask around.”`;
     this.appendDialogue(topicId, text);
+    // Quest hooks run AFTER the text lands so fx.line entries read in order.
+    if (def?.effect) {
+      def.effect(this.topicFx());
+      this.pushHudStats();
+      events.emit('char:changed', {});
+    }
     this.pushDialogueState();
+  }
+
+  /** Side-effect surface handed to topic effects. */
+  private topicFx(): TopicFx {
+    const dlg = this.dlg as NonNullable<typeof this.dlg>;
+    const c = this.character as Character;
+    return {
+      view: this.gameView(),
+      npc: { key: dlg.npc.key, town: dlg.npc.town },
+      setStage: (q, s) => this.advanceQuest(q, s),
+      setFlag: (id) => setQuestFlag(id),
+      give: (id, n = 1) => {
+        addItem(c, itemId(id), n);
+        events.emit('toast', { text: `Received: ${itemDef(itemId(id)).name}`, kind: 'item' });
+      },
+      take: (id, n = 1) => removeItem(c, itemId(id), n),
+      addGold: (n) => {
+        c.gold += n;
+      },
+      join: (f) => joinFaction(f as FactionId),
+      addRep: (f, n) => addRep(f as FactionId, n),
+      promote: (f) => {
+        promote(f as FactionId);
+        this.dlg?.log.push({ topic: null, text: `— You are now ${rankTitle(f as FactionId)}.` });
+      },
+      startDuty: (f) => this.startFactionDuty(f as FactionId),
+      turnInDuty: (f) => this.turnInFactionDuty(f as FactionId),
+      deliverParcel: () => this.deliverRadiantParcel(),
+      teleport: (townId) => void this.portalTo(townId),
+      line: (text) => this.dlg?.log.push({ topic: null, text }),
+    };
+  }
+
+  advanceQuest(quest: string, stage: number): void {
+    setQuestStage(quest, stage, this.clock.day);
+  }
+
+  private startFactionDuty(f: FactionId): void {
+    const dlg = this.dlg;
+    const c = this.character;
+    if (!c) return;
+    const d = startDuty(f, dlg?.npc.town ?? '');
+    if (d.kind === 'deliver') {
+      addItem(c, itemId('sealed-parcel'), 1);
+    }
+    this.advanceQuest(`radiant-${f}`, 10);
+    const desc =
+      d.kind === 'bounty'
+        ? `Posted: put down ${d.count} ${d.targetName}. ${d.reward} gold on completion.`
+        : d.kind === 'harvest'
+          ? `Posted: bring ${d.count}× ${d.targetName}. ${d.reward} gold on receipt.`
+          : `Posted: this parcel reaches the innkeeper at ${d.targetName}. ${d.reward} gold on return.`;
+    dlg?.log.push({ topic: null, text: `— ${desc}` });
+  }
+
+  private turnInFactionDuty(f: FactionId): boolean {
+    const dlg = this.dlg;
+    const c = this.character;
+    const d = activeDuty(f);
+    if (!c || !d) return false;
+    // Harvest contracts complete at the desk if the goods are in hand.
+    if (d.kind === 'harvest' && !dutyDone(d)) {
+      const have = c.inventory.find((s) => (s.id as string) === d.target)?.n ?? 0;
+      if (have >= d.count) {
+        removeItem(c, itemId(d.target), d.count);
+        d.progress = d.count;
+      }
+    }
+    if (dutyDone(d)) {
+      c.gold += d.reward;
+      addRep(f, 3);
+      clearDuty(f);
+      this.advanceQuest(`radiant-${f}`, 20);
+      this.advanceQuest(`radiant-${f}`, 30);
+      dlg?.log.push({ topic: null, text: `— ${d.reward} gold, paid in full.` });
+      return true;
+    }
+    const status =
+      d.kind === 'bounty'
+        ? `Bounty stands at ${d.progress}/${d.count} ${d.targetName}.`
+        : d.kind === 'harvest'
+          ? `Still owed: ${d.count}× ${d.targetName}.`
+          : `The parcel still wants the ${d.targetName} innkeeper.`;
+    dlg?.log.push({ topic: null, text: `— ${status}` });
+    return false;
+  }
+
+  private deliverRadiantParcel(): void {
+    const dlg = this.dlg;
+    const c = this.character;
+    const d = activeDuty('skarn');
+    if (!c || !dlg) return;
+    if (!d || d.kind !== 'deliver' || dutyDone(d)) {
+      dlg.log.push({ topic: null, text: '— “No parcel business here that I know of.”' });
+      return;
+    }
+    if (dlg.npc.town === d.target) {
+      removeItem(c, itemId('sealed-parcel'), 1);
+      d.progress = d.count;
+      this.advanceQuest('radiant-skarn', 20);
+      dlg.log.push({ topic: null, text: '— “Addressed here, as it happens. Consider it delivered.”' });
+    } else {
+      dlg.log.push({ topic: null, text: `— “This is addressed to ${d.targetName}. Wrong town, friend.”` });
+    }
+  }
+
+  /** Conclave hall portal — members ride the dream for free. */
+  async portalTo(townId: string): Promise<void> {
+    const t = TOWNS.find((x) => (x.id as string) === townId);
+    if (!t || this.mode !== 'play') return;
+    input.clearModes();
+    events.emit('screen:fade', { on: true });
+    await sleep(220);
+    this.tp(t.pos[0] + 8, t.pos[1] + 8);
+    await sleep(80);
+    events.emit('screen:fade', { on: false });
+    events.emit('toast', { text: `The hall door opens on ${t.name}.`, kind: 'quest' });
   }
 
   persuadeWith(kind: PersuadeKind): void {
@@ -1070,6 +1413,89 @@ export class Game {
 
     this.sky.update(this.camera.position, a, this.fogColor, this.timeS);
     this.ocean.update(camX, camZ, this.timeS, a.sunColor, a.sunI, this.fogColor, this.fogDensity);
+  }
+
+  // ----- journal + maps (plain-data reads for the UI) ------------------------------
+
+  getJournal(): {
+    quests: ReturnType<typeof journalView>;
+    factions: {
+      id: string;
+      name: string;
+      blurb: string;
+      joined: boolean;
+      rank: string;
+      rep: number;
+      duty: string | null;
+    }[];
+    topics: { id: string; keyword: string }[];
+  } {
+    const c = this.character;
+    return {
+      quests: journalView(),
+      factions: FACTIONS.map((f) => {
+        const d = activeDuty(f.id);
+        const dutyLine = d
+          ? d.kind === 'bounty'
+            ? `Bounty: ${d.progress}/${d.count} ${d.targetName}`
+            : d.kind === 'harvest'
+              ? `Bring ${d.count}× ${d.targetName}`
+              : `Parcel to ${d.targetName}`
+          : null;
+        return {
+          id: f.id as string,
+          name: f.name,
+          blurb: f.blurb,
+          joined: factionJoined(f.id),
+          rank: rankTitle(f.id),
+          rep: factionRep(f.id),
+          duty: dutyLine,
+        };
+      }),
+      topics: (c?.topicsKnown ?? []).map((id) => ({
+        id,
+        keyword: TOPICS.find((t) => t.id === id)?.keyword ?? id,
+      })),
+    };
+  }
+
+  private worldMapUrl: string | null = null;
+
+  getMapData(): {
+    url: string;
+    sizeM: number;
+    towns: { id: string; name: string; x: number; z: number }[];
+    dungeons: { name: string; x: number; z: number }[];
+    player: { x: number; z: number; yaw: number; interior: boolean };
+  } {
+    this.worldMapUrl ??= bakeWorldMap();
+    const b = this.player.body;
+    return {
+      url: this.worldMapUrl,
+      sizeM: WORLD_SIZE,
+      towns: TOWNS.map((t) => ({ id: t.id as string, name: t.name, x: t.pos[0], z: t.pos[1] })),
+      dungeons: DUNGEONS.filter((d) => this.world.discovered.has(`dgn:${d.id}`)).map((d) => ({
+        name: d.name,
+        x: d.pos[0],
+        z: d.pos[1],
+      })),
+      player: { x: b.x, z: b.z, yaw: this.player.yaw, interior: this.world.isInterior },
+    };
+  }
+
+  getLocalMap(): {
+    label: string;
+    rooms: { x0: number; z0: number; x1: number; z1: number }[];
+    player: { x: number; z: number; yaw: number };
+  } | null {
+    const cell = this.world.interior;
+    if (!cell) return null;
+    const b = this.player.body;
+    return {
+      label: cell.label,
+      rooms: cell.rooms.map((r) => ({ x0: r.x0, z0: r.z0, x1: r.x1, z1: r.z1 })),
+      player: { x: b.x, z: b.z, yaw: this.player.yaw },
+    };
   }
 
   // ----- dev helpers -----------------------------------------------------------

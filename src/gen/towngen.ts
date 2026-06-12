@@ -8,9 +8,10 @@
  */
 
 import * as THREE from 'three';
-import { Sfc32, seedOf } from '@/engine/rng';
+import { Sfc32, seedOf, xmur3 } from '@/engine/rng';
 import { aabb, type Aabb } from '@/engine/math';
 import { cellId as asCellId, seedPathId, type CellId } from '@/data/ids';
+import { QUEST_NPCS } from '@/data/factions';
 import { TOWNS, type TownDef } from '@/data/towns';
 import { SEA_LEVEL } from '@/data/world';
 import { worldHeight } from '@/world/terrain';
@@ -584,6 +585,41 @@ export function buildTown(townIndex: number): TownBuild {
         prompt: spec.name,
         mesh: m,
         data: { role: spec.role, culture: spec.culture, town: town.id, npcKey: spec.id, name: spec.name },
+      }),
+    );
+  }
+
+  // Authored quest NPCs (fixed plaza-adjacent offsets, own rng stream — never
+  // disturbs the villager rolls above).
+  for (const q of QUEST_NPCS) {
+    if (q.town !== (town.id as string)) continue;
+    const qx = tx + q.dx;
+    const qz = tz + q.dz;
+    const g = makeHumanoidGeo(new Sfc32(seedOf('quest-npc', xmur3(q.key)())), q.meshRole, q.culture);
+    const m = new THREE.Mesh(g, vertexColorMaterial());
+    m.position.set(qx, baseY, qz);
+    m.rotation.y = q.rotY;
+    group.add(m);
+    entities.push(
+      makeEntity({
+        id: seedPathId(`quest:${q.key}`),
+        kind: 'npc',
+        x: qx,
+        y: baseY,
+        z: qz,
+        rotY: q.rotY,
+        radius: 0.55,
+        height: 1.78,
+        prompt: `${q.name} — ${q.title}`,
+        mesh: m,
+        data: {
+          role: q.meshRole,
+          culture: q.culture,
+          town: town.id,
+          npcKey: `quest:${q.key}`,
+          name: q.name,
+          quest: true,
+        },
       }),
     );
   }

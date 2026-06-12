@@ -68,6 +68,40 @@ export interface BookView {
   note: string | null;
 }
 
+export interface JournalData {
+  quests: {
+    quest: string;
+    name: string;
+    faction: string | null;
+    complete: boolean;
+    entries: { stage: number; day: number; text: string }[];
+  }[];
+  factions: {
+    id: string;
+    name: string;
+    blurb: string;
+    joined: boolean;
+    rank: string;
+    rep: number;
+    duty: string | null;
+  }[];
+  topics: { id: string; keyword: string }[];
+}
+
+export interface MapData {
+  url: string;
+  sizeM: number;
+  towns: { id: string; name: string; x: number; z: number }[];
+  dungeons: { name: string; x: number; z: number }[];
+  player: { x: number; z: number; yaw: number; interior: boolean };
+}
+
+export interface LocalMapData {
+  label: string;
+  rooms: { x0: number; z0: number; x1: number; z1: number }[];
+  player: { x: number; z: number; yaw: number };
+}
+
 interface UiState {
   gameMode: GameMode;
   uiStack: readonly UiMode[];
@@ -85,6 +119,9 @@ interface UiState {
   barter: BarterView | null;
   travel: TravelView | null;
   book: BookView | null;
+  /** Bumped on quest:stage so the journal re-reads. */
+  questVersion: number;
+  ending: 'choice' | 'sever' | 'rebind' | null;
   saves: SaveMeta[];
   setSettings: (partial: Partial<GameSettings>) => void;
   dismissToast: (id: number) => void;
@@ -106,6 +143,8 @@ export const useUi = create<UiState>()((set) => ({
   barter: null,
   travel: null,
   book: null,
+  questVersion: 0,
+  ending: null,
   saves: [],
   setSettings: (partial) =>
     set((s) => {
@@ -165,6 +204,11 @@ export interface GameAPI {
   /** Combine 2–4 ingredients; returns the result line for the window. */
   brewPotion(ids: ItemId[]): string;
   applyLevelUp(picks: readonly [string, string, string]): void;
+  // ----- P7: journal / maps / endings -------------------------------------------
+  getJournal(): JournalData;
+  getMapData(): MapData;
+  getLocalMap(): LocalMapData | null;
+  chooseEnding(kind: 'sever' | 'rebind'): void;
 }
 
 /** Branded SpellId without importing the data layer into every consumer. */
@@ -198,6 +242,13 @@ export function initUiBridge(): void {
   events.on('barter:state', (b) => useUi.setState({ barter: b }));
   events.on('travel:open', (t) => useUi.setState({ travel: t }));
   events.on('book:open', (b) => useUi.setState({ book: b }));
+  events.on('quest:stage', ({ name }) => {
+    useUi.setState((s) => ({
+      questVersion: s.questVersion + 1,
+      toasts: [...s.toasts.slice(-3), { id: toastId++, text: `Journal updated — ${name}`, kind: 'quest' as ToastKind }],
+    }));
+  });
+  events.on('ending:open', ({ phase }) => useUi.setState({ ending: phase }));
   events.on('toast', ({ text, kind }) =>
     useUi.setState((s) => ({
       toasts: [...s.toasts.slice(-3), { id: toastId++, text, kind }],

@@ -290,6 +290,14 @@ items.push(
   { id: itemId('gem-seaglass'), name: 'Seaglass Bauble', kind: 'misc', weight: 0.2, value: 12, tier: 0 },
   { id: itemId('idol-drowned'), name: 'Drowned Idol', kind: 'misc', weight: 1.2, value: 80, tier: 2 },
   { id: itemId('vargen-tablets'), name: 'The Vargen Tablets', kind: 'misc', weight: 4, value: 0, tier: 3 },
+  // Quest items — value 0 keeps them out of merchant math; weight keeps them honest.
+  { id: itemId('sealed-writ'), name: 'Sealed Writ of Pardon', kind: 'misc', weight: 0.1, value: 0, tier: 0 },
+  { id: itemId('sealed-parcel'), name: 'Sealed Parcel', kind: 'misc', weight: 1, value: 0, tier: 0 },
+  { id: itemId('survey-packet'), name: 'Conclave Survey Packet', kind: 'misc', weight: 0.5, value: 0, tier: 0 },
+  { id: itemId('recording-crystal'), name: 'Recording Crystal', kind: 'misc', weight: 0.6, value: 0, tier: 0 },
+  { id: itemId('choir-relic'), name: 'Choir Dream-Record', kind: 'misc', weight: 1.4, value: 0, tier: 0 },
+  { id: itemId('skarn-bauble'), name: 'Skarn Gift-Bauble', kind: 'misc', weight: 0.3, value: 0, tier: 0 },
+  { id: itemId('vigil-paychest-gold'), name: 'Vigil Pay-Gold (marked)', kind: 'misc', weight: 3, value: 0, tier: 0 },
 );
 
 export const ITEMS: readonly ItemDef[] = items;

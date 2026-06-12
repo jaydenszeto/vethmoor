@@ -68,8 +68,12 @@ export class WorldManager {
   onNpcTalk: ((e: Entity) => void) | null = null;
   /** Game opens the travel window. */
   onTravel: ((e: Entity) => void) | null = null;
+  /** Game wires quest markers (tablet pedestal, drowned throne). */
+  onQuestMarker: ((e: Entity, tag: string) => void) | null = null;
   /** Current hour (for shop locks) — pushed by Game each hour. */
   hourNow = 12;
+  /** Site keys the player has come close to (map discovery). */
+  readonly discovered = new Set<string>();
 
   /** Last exterior door position (for saves while inside). */
   get returnPoint(): { x: number; z: number; yaw: number } {
@@ -116,6 +120,7 @@ export class WorldManager {
     if (this.isInterior) return;
     for (const s of this.sites) {
       const d = Math.hypot(px - s.x, pz - s.z);
+      if (d < 180) this.discovered.add(s.key);
       if (!s.group && d < SITE_LOAD_DIST) this.loadSite(s);
       else if (s.group && d > SITE_UNLOAD_DIST) this.unloadSite(s);
     }
@@ -203,7 +208,7 @@ export class WorldManager {
       for (const e of s.entities) {
         if (e.kind !== 'npc') continue;
         const role = e.data.role as string;
-        const sleeps = role !== 'guard' && role !== 'innkeep';
+        const sleeps = role !== 'guard' && role !== 'innkeep' && e.data.quest !== true;
         const hidden = night && sleeps;
         if (e.mesh) e.mesh.visible = !hidden;
         e.data.asleep = hidden;
@@ -312,6 +317,8 @@ export class WorldManager {
           if (this.onNpcTalk) this.onNpcTalk(e);
           else events.emit('toast', { text: `${name}: “Welcome, traveler.”`, kind: 'info' });
         };
+      } else if (spec.kind === 'marker' && tag.startsWith('quest:')) {
+        this.onQuestMarker?.(e, tag);
       }
       return e;
     });

@@ -127,10 +127,14 @@ export class SpawnManager {
       const theme = parts[1] ?? 'cave';
       const isBoss = parts[3] === 'boss';
       const rng = new Sfc32(seedOf('dspawn', i, cell.id.length));
+      // The Undertooth's door-warden is always the Herald of the Drowned King.
       const kind = isBoss
-        ? (BOSS_TABLE[theme] ?? 'skeleton-warden')
+        ? (cell.id as string) === 'dgn:undertooth'
+          ? 'herald'
+          : (BOSS_TABLE[theme] ?? 'skeleton-warden')
         : rng.pick(DUNGEON_TABLE[theme] ?? DUNGEON_TABLE.cave as readonly string[]);
-      this.spawn(kind as EnemyId, spec.x, spec.z, q, id);
+      const a = this.spawn(kind as EnemyId, spec.x, spec.z, q, id);
+      a.isBoss = isBoss;
     });
   }
 

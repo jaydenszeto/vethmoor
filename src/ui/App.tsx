@@ -24,6 +24,9 @@ import { RestDialog } from '@/ui/windows/RestDialog';
 import { BookReader } from '@/ui/windows/BookReader';
 import { AlchemyWindow } from '@/ui/windows/Alchemy';
 import { LevelUpDialog } from '@/ui/windows/LevelUp';
+import { JournalWindow } from '@/ui/windows/Journal';
+import { MapWindow } from '@/ui/windows/MapWindow';
+import { EndingScreen } from '@/ui/windows/Ending';
 import { CombatOverlays, DeathScreen } from '@/ui/hud/CombatHud';
 
 function Prompt() {
@@ -86,6 +89,9 @@ export function App() {
       {top === 'book' && <BookReader />}
       {top === 'alchemy' && <AlchemyWindow />}
       {top === 'levelup' && <LevelUpDialog />}
+      {top === 'journal' && <JournalWindow />}
+      {top === 'map' && <MapWindow />}
+      {top === 'ending' && <EndingScreen />}
       <Toasts />
       <Blackout />
       {import.meta.env.DEV && <DebugOverlay />}

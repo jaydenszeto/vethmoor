@@ -13,3 +13,7 @@
 - `PixelHeading` renders to canvas — CDP/DOM assertions must target buttons/spans, never heading text content.
 - Per-NPC persistent state (disposition, merchant stock/gold) keys off `npcKey` (seed-path id) and serializes into the save `ext` blob — new runtime maps need restore-on-load AND clear-on-new-game or state leaks across games.
 - `time:hour` only fires on hour boundaries; anything schedule-driven must also be applied explicitly after clock.set (new game / load) and on site load, or freshly loaded towns ignore the hour.
+- Every damage source that can kill MUST call `game.onActorDeath` after `takeDamage` when `!a.alive` — the actor never reports its own death. Quest kill-triggers, corpses and audio all hang off that callback.
+- In CDP verification, never `import('/src/...')` sim modules from the page — after HMR the app holds `?t=`-stamped instances and the bare URL gives you a phantom copy with empty state. Drive everything through `window.dbg` or the DOM.
+- Topic defs sharing one id must keep their `cond`s DISJOINT (p7 test enforces for 'work'); resolution picks by scope rank and ties are first-wins, so overlapping conds make dialogue state-dependent in silent ways.
+- The town structure-hash snapshot includes the entity list — adding authored content (quest NPCs) is a legitimate, deliberate snapshot bump; rng-stream drift is not. Always give new content its OWN seed stream (`seedOf('quest-npc', ...)`) so existing rolls stay put.

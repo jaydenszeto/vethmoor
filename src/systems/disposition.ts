@@ -13,7 +13,14 @@ import type { Character } from './stats';
 const disp = new Map<string, number>();
 let rollCounter = 0;
 
-export function getDisposition(npcKey: string): number {
+/** Global modifier (faction ranks etc.) added on read, never stored. */
+let bonusFn: () => number = () => 0;
+
+export function setDispositionBonusProvider(fn: () => number): void {
+  bonusFn = fn;
+}
+
+function rawDisposition(npcKey: string): number {
   let v = disp.get(npcKey);
   if (v === undefined) {
     // Stable base 42..58 per NPC.
@@ -23,10 +30,14 @@ export function getDisposition(npcKey: string): number {
   return v;
 }
 
+export function getDisposition(npcKey: string): number {
+  return clamp(rawDisposition(npcKey) + bonusFn(), 0, 100);
+}
+
 export function modDisposition(npcKey: string, delta: number): number {
-  const v = clamp(getDisposition(npcKey) + delta, 0, 100);
+  const v = clamp(rawDisposition(npcKey) + delta, 0, 100);
   disp.set(npcKey, v);
-  return v;
+  return clamp(v + bonusFn(), 0, 100);
 }
 
 export type PersuadeKind = 'admire' | 'intimidate' | 'bribe10' | 'bribe50';

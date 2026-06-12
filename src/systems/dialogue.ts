@@ -18,11 +18,13 @@ export interface NpcIdentity {
 function scopeRank(def: TopicDef, npc: NpcIdentity): number {
   const s = def.scope;
   if (!s) return 0;
-  const roleMatch = s.role !== undefined && s.role === npc.role;
-  const townMatch = s.town !== undefined && (s.town as string) === npc.town;
+  if (s.npc !== undefined && s.npc !== npc.key) return -1;
   if (s.role !== undefined && s.role !== npc.role) return -1;
   if (s.town !== undefined && (s.town as string) !== npc.town) return -1;
-  return (roleMatch ? 2 : 0) + (townMatch ? 1 : 0);
+  const npcMatch = s.npc !== undefined;
+  const roleMatch = s.role !== undefined;
+  const townMatch = s.town !== undefined;
+  return (npcMatch ? 4 : 0) + (roleMatch ? 2 : 0) + (townMatch ? 1 : 0);
 }
 
 /** Best-matching def for a topic id, given the NPC. */

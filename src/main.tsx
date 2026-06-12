@@ -27,7 +27,7 @@ registerGameAPI({
     if (partial.renderHeight) game.setRenderHeight(partial.renderHeight);
     audio.applyVolumes();
   },
-  finishChargen: (name, race, classId, stone) => game.finishChargen(name, race, classId, stone),
+  finishChargen: (name, race, classId, stone) => void game.finishChargen(name, race, classId, stone),
   getCharacter: () => game.character,
   equipItem: (id) => {
     if (game.character) equipItem(game.character, id);
@@ -58,6 +58,10 @@ registerGameAPI({
   readBook: (id) => game.readBook(id),
   brewPotion: (ids) => game.brewPotion(ids),
   applyLevelUp: (picks) => game.applyLevelUpPicks(picks),
+  getJournal: () => game.getJournal(),
+  getMapData: () => game.getMapData(),
+  getLocalMap: () => game.getLocalMap(),
+  chooseEnding: (kind) => game.chooseEnding(kind),
   readySpell: (id) => game.combat.readySpell(id as never),
   bindHotkey: (id, slot) => {
     const c = game.character;
@@ -89,6 +93,10 @@ if (import.meta.env.DEV) {
     setHour: (h: number) => game.setHour(h),
     setWeather: (k: 'clear' | 'overcast' | 'rain' | 'ashstorm') => game.setWeather(k),
     closeUi: () => input.clearModes(),
+    quest: (id = 'main', stage?: number) => {
+      if (stage !== undefined) game.advanceQuest(id, stage);
+      return game.getJournal().quests;
+    },
     headless: () => {
       input.headless = true;
       input.clearModes();
@@ -108,7 +116,11 @@ if (import.meta.env.DEV) {
     },
     kill: () => {
       for (const a of game.spawns.actors) {
-        if (a.alive && !a.friendly) a.takeDamage(99999, 0, 0);
+        if (a.alive && !a.friendly) {
+          a.takeDamage(99999, 0, 0);
+          // Route through the real death path (corpse, quest triggers, audio).
+          if (!a.alive) game.onActorDeath(a);
+        }
       }
     },
     godmode: () => {

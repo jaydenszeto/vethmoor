@@ -43,6 +43,8 @@ export class EnemyActor {
   readonly body: BodyState;
   readonly spawnId: string;
   readonly friendly: boolean;
+  /** Set by the spawn system for boss-marker spawns (quest kill triggers). */
+  isBoss = false;
 
   hp: number;
   state: AiState = 'idle';

@@ -81,6 +81,10 @@ export interface EventMap {
   };
   /** Book reader contents (note = "+1 Blade" style teach line). */
   'book:open': { title: string; text: string; note: string | null };
+  /** A quest stage advanced (journal toast + UI version bump). */
+  'quest:stage': { quest: string; name: string; stage: number; text: string };
+  /** The Drowned Throne sequence: choice screen, then the chosen epilogue. */
+  'ending:open': { phase: 'choice' | 'sever' | 'rebind' };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

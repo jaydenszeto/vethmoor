@@ -29,7 +29,17 @@ import { createCharacter } from './stats';
 beforeAll(() => setWorldSeed(DEFAULT_WORLD_SEED));
 beforeEach(() => restoreDispositions({}));
 
-const view: GameView = { day: 1, hour: 12, questStage: () => 0 };
+const view: GameView = {
+  day: 1,
+  hour: 12,
+  questStage: () => 0,
+  questFlag: () => false,
+  hasItem: () => false,
+  factionJoined: () => false,
+  factionRank: () => 0,
+  canPromote: () => false,
+  duty: () => null,
+};
 
 function npc(role: NpcIdentity['role'], town: string | null = 'saltmere', key = 'test:npc'): NpcIdentity {
   return { key, name: 'Testa', role, town };
@@ -64,7 +74,8 @@ describe('topic database', () => {
 
   it('role-scoped defs outrank generic ones and never leak to other roles', () => {
     for (const def of TOPICS) {
-      if (!def.scope?.role) continue;
+      if (!def.scope?.role || def.scope.npc) continue;
+      if (def.cond && !def.cond(view)) continue; // quest-gated defs test elsewhere
       const match = topicDefFor(npc(def.scope.role, def.scope.town ?? null), def.id, view);
       expect(match?.scope?.role).toBe(def.scope.role);
       // A different role must not receive this role-scoped text.

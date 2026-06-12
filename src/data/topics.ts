@@ -8,17 +8,47 @@
 
 import type { TownId } from './ids';
 import type { NpcRole } from '@/gen/models/humanoid';
+import { QUEST_TOPICS } from './topicsQuests';
 
 export interface TopicScope {
   town?: TownId | undefined;
   role?: NpcRole | undefined;
+  /** Exact npcKey match — outranks role+town (quest NPCs). */
+  npc?: string | undefined;
 }
 
 export interface GameView {
   day: number;
   hour: number;
-  /** Quest stage lookup — wired in P7; always 0 before. */
   questStage: (id: string) => number;
+  questFlag: (id: string) => boolean;
+  hasItem: (id: string, n?: number) => boolean;
+  factionJoined: (f: string) => boolean;
+  factionRank: (f: string) => number;
+  canPromote: (f: string) => boolean;
+  /** Active radiant duty for a faction (null = none). */
+  duty: (f: string) => { done: boolean } | null;
+}
+
+/** Side-effect surface handed to topic effects by the Game executor. */
+export interface TopicFx {
+  view: GameView;
+  npc: { key: string; town: string | null };
+  setStage: (quest: string, stage: number) => void;
+  setFlag: (id: string) => void;
+  give: (id: string, n?: number) => void;
+  take: (id: string, n?: number) => boolean;
+  addGold: (n: number) => void;
+  join: (f: string) => void;
+  addRep: (f: string, n: number) => void;
+  promote: (f: string) => void;
+  startDuty: (f: string) => void;
+  turnInDuty: (f: string) => boolean;
+  /** Hand the radiant parcel to THIS innkeeper (checks the addressed town). */
+  deliverParcel: () => void;
+  teleport: (townId: string) => void;
+  /** Append a system line to the dialogue log. */
+  line: (text: string) => void;
 }
 
 export interface TopicDef {
@@ -30,6 +60,8 @@ export interface TopicDef {
   text: readonly string[];
   /** Always in the topic list (core knowledge). */
   core?: boolean;
+  /** Runs when the topic is chosen (quest hooks). */
+  effect?: (fx: TopicFx) => void;
 }
 
 export const CORE_TOPICS = [
@@ -239,4 +271,6 @@ export const TOPICS: readonly TopicDef[] = [
       'The ash-nomad post — bone lodges and patient folk. They read the storms like fishermen read tide. If a Veskar elder tells you not to travel, do not travel.',
     ],
   },
+  // P7: quest + faction dialogue lives in its own module.
+  ...QUEST_TOPICS,
 ];
