@@ -26,6 +26,7 @@ import { AlchemyWindow } from '@/ui/windows/Alchemy';
 import { LevelUpDialog } from '@/ui/windows/LevelUp';
 import { JournalWindow } from '@/ui/windows/Journal';
 import { MapWindow } from '@/ui/windows/MapWindow';
+import { Guide } from '@/ui/windows/Guide';
 import { EndingScreen } from '@/ui/windows/Ending';
 import { CombatOverlays, DeathScreen } from '@/ui/hud/CombatHud';
 
@@ -91,6 +92,7 @@ export function App() {
       {top === 'levelup' && <LevelUpDialog />}
       {top === 'journal' && <JournalWindow />}
       {top === 'map' && <MapWindow />}
+      {top === 'guide' && <Guide />}
       {top === 'ending' && <EndingScreen />}
       <Toasts />
       <Blackout />

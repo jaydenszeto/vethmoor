@@ -22,7 +22,8 @@ npm start          # builds nothing, opens http://localhost:5173 in your browser
 
 That's it — `npm start` launches the dev server and pops the game open in your default
 browser. (`npm run dev` does the same without auto-opening.) Click the canvas to capture the
-mouse, roll a character, and walk out the gate.
+mouse and roll a character. **A field guide greets every new character** with the controls and
+your first task; press **H** to reopen it any time (it's also on the title and pause menus).
 
 `npm run typecheck` and `npm test` (62 tests) must both be green before any commit.
 
@@ -63,6 +64,7 @@ carries your verdict for the rest of the save.
 | Space / Shift / C | jump / sprint / sneak |
 | Tab or I · V · K | inventory · character sheet · spellbook |
 | J · M | journal (quests/factions/topics) · map (world / local automap) |
+| H | field guide — how to play (also on the title & pause menus) |
 | T · B | rest (heals, levels you up) · alchemy bench |
 | 1–8 | spell hotkeys · F5 / F9 quicksave / quickload |
 | Esc | pause |

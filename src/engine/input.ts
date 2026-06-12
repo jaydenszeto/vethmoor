@@ -27,6 +27,7 @@ export type UiMode =
   | 'levelup'
   | 'saves'
   | 'settings'
+  | 'guide'
   | 'ending';
 
 export type Action =
@@ -61,6 +62,7 @@ const TOGGLE_KEYS: Record<string, UiMode> = {
   KeyB: 'alchemy',
   KeyJ: 'journal',
   KeyM: 'map',
+  KeyH: 'guide',
 };
 
 class InputManager {

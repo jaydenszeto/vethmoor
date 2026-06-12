@@ -22,6 +22,10 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 
 <!-- root causes recorded here as phases complete -->
 
+## post-ship
+
+- [completed] Onboarding — in-game **Field Guide** (`src/ui/windows/Guide.tsx`, `guide` uiMode): auto-opens once as a personalized "WELCOME" the moment a new character spawns (pushed onto the uiStack from `finishChargen` so pointer lock releases until dismissed, then re-locks on the closing click), reachable any time from the title menu, pause menu, and the **H** key. One-shot welcome via the `guide:welcome` event → `guideWelcome` store flag, cleared on the window's unmount so later opens show the plain reference. Verified live (menu, new-game welcome with name interpolation over the live world, pause-reopen reset).
+
 - P0–P1: vitest inline snapshots must be generated (`vitest run -u`), never hand-written — fabricated values fail and then get silently "fixed" into meaninglessness.
 - P2: terrain road-grade limit could not be met by smoothing alone — A* paths take steep shortcuts; the fix was a forward/backward grade-clamping pass that guarantees the limit by construction.
 - P3: `mergeGeometries` requires identical attribute sets — hand-built prisms (no UV) vs Box/Cylinder (UV) broke town merges. Root cause: implicit attribute contracts; fix: merge() strips UVs (all procedural models are vertex-colored).

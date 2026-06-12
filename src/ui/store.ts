@@ -122,6 +122,8 @@ interface UiState {
   /** Bumped on quest:stage so the journal re-reads. */
   questVersion: number;
   ending: 'choice' | 'sever' | 'rebind' | null;
+  /** True only while the field guide is showing its first-spawn greeting. */
+  guideWelcome: boolean;
   saves: SaveMeta[];
   setSettings: (partial: Partial<GameSettings>) => void;
   dismissToast: (id: number) => void;
@@ -145,6 +147,7 @@ export const useUi = create<UiState>()((set) => ({
   book: null,
   questVersion: 0,
   ending: null,
+  guideWelcome: false,
   saves: [],
   setSettings: (partial) =>
     set((s) => {
@@ -249,6 +252,7 @@ export function initUiBridge(): void {
     }));
   });
   events.on('ending:open', ({ phase }) => useUi.setState({ ending: phase }));
+  events.on('guide:welcome', () => useUi.setState({ guideWelcome: true }));
   events.on('toast', ({ text, kind }) =>
     useUi.setState((s) => ({
       toasts: [...s.toasts.slice(-3), { id: toastId++, text, kind }],

@@ -85,6 +85,8 @@ export interface EventMap {
   'quest:stage': { quest: string; name: string; stage: number; text: string };
   /** The Drowned Throne sequence: choice screen, then the chosen epilogue. */
   'ending:open': { phase: 'choice' | 'sever' | 'rebind' };
+  /** A fresh character spawned — the field guide opens once as a greeting. */
+  'guide:welcome': Record<string, never>;
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

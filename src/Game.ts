@@ -455,6 +455,10 @@ export class Game {
     this.setMode('play');
     events.emit('toast', { text: 'Saltmere. The seer’s summons is three weeks old already.', kind: 'quest' });
     this.pushHudStats();
+    // Greet a brand-new Writ-Bearer with the field guide; pushing it onto the
+    // stack lets pointer lock go until they dismiss it (then it re-locks).
+    events.emit('guide:welcome', {});
+    input.pushMode('guide');
   }
 
   async continueGame(): Promise<void> {

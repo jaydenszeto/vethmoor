@@ -410,6 +410,78 @@ input[type='range'].vm-slider::-webkit-slider-thumb {
   color: var(--blood);
 }
 
+/* ============ field guide ============ */
+
+/* a little oiled-iron keycap */
+.vm-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--bone);
+  background: linear-gradient(180deg, var(--iron-3), var(--iron-1));
+  border: 1px solid var(--edge-bright);
+  box-shadow:
+    inset 0 1px 0 var(--bevel-light),
+    inset 0 -2px 0 var(--bevel-dark),
+    0 1px 0 rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* one teachable line: [keys] — what it does */
+.vm-guide-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: 5px 0;
+  line-height: 1.45;
+}
+
+.vm-guide-keys {
+  flex: 0 0 96px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+
+.vm-guide-row > span:last-child {
+  color: var(--ink-dim);
+  font-size: var(--text-sm);
+}
+
+/* a grouped card in the two-column field-guide grid */
+.vm-guide-card {
+  border: 1px solid var(--edge);
+  background: linear-gradient(180deg, rgba(95, 162, 133, 0.04), transparent 38%);
+  box-shadow: inset 0 1px 0 var(--bevel-light);
+  padding: var(--sp-3) var(--sp-4) var(--sp-3);
+}
+
+.vm-guide-card > h3 {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--text-xs);
+  font-variant: small-caps;
+  letter-spacing: 0.16em;
+  font-weight: 400;
+  color: var(--verdigris);
+}
+
+/* ember-edged objective strip at the head of the guide */
+.vm-guide-charge {
+  border: 1px solid var(--edge-ember);
+  border-left-width: 3px;
+  background: linear-gradient(90deg, rgba(255, 154, 60, 0.1), transparent 72%);
+  padding: var(--sp-3) var(--sp-4);
+}
+
 /* fade-to-black overlay for cell transitions */
 .vm-blackout {
   position: absolute;

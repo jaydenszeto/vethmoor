@@ -94,6 +94,15 @@ export function MainMenu() {
             <button
               type="button"
               className="vm-btn"
+              onClick={() => gameApi().openWindow('guide')}
+            >
+              How to Play
+            </button>
+          </div>
+          <div className="vm-rise" style={{ ['--i' as string]: 7 }}>
+            <button
+              type="button"
+              className="vm-btn"
               onClick={() => gameApi().openWindow('settings')}
             >
               Settings
@@ -103,7 +112,7 @@ export function MainMenu() {
 
         <div
           className="vm-rise"
-          style={{ ['--i' as string]: 7, marginTop: 38, maxWidth: 340 }}
+          style={{ ['--i' as string]: 8, marginTop: 38, maxWidth: 340 }}
         >
           <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--ink-fade)', fontStyle: 'italic' }}>
             “The ash is his breath. The storms are his turning.”
