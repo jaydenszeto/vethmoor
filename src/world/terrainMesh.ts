@@ -20,6 +20,8 @@ import {
   SKIRT_DROP,
 } from '@/data/world';
 import { biomeWeightsAt, worldHeight } from './terrain';
+import { roadDistance } from './roads';
+import { TOWNS } from '@/data/towns';
 
 export const GRID_SIDE = CHUNK_SIZE / GRID_STEP + 3; // 67 (margin sample each side)
 
@@ -123,6 +125,25 @@ function layerWeightsAt(
   if (rock > 0) {
     for (let i = 0; i < 8; i++) wLayer[i] = (wLayer[i] as number) * (1 - rock);
     wLayer[GROUND.rock] = (wLayer[GROUND.rock] as number) + rock;
+  }
+  // Roads: packed dirt along the carriageway.
+  const rd = roadDistance(wx, wz);
+  if (rd < 5.5) {
+    const t = smoothstep(5.5, 2.2, rd) * 0.92;
+    for (let i = 0; i < 8; i++) wLayer[i] = (wLayer[i] as number) * (1 - t);
+    wLayer[GROUND.road] = (wLayer[GROUND.road] as number) + t;
+  }
+  // Town footprints read as trodden earth.
+  for (const t of TOWNS) {
+    const dx = wx - t.pos[0];
+    const dz = wz - t.pos[1];
+    const d2 = dx * dx + dz * dz;
+    if (d2 < (t.radius + 18) * (t.radius + 18)) {
+      const tw = smoothstep(t.radius + 18, t.radius * 0.72, Math.sqrt(d2)) * 0.7;
+      for (let i = 0; i < 8; i++) wLayer[i] = (wLayer[i] as number) * (1 - tw);
+      wLayer[GROUND.road] = (wLayer[GROUND.road] as number) + tw;
+      break;
+    }
   }
   // Normalize (defensive) and write.
   let sum = 0;

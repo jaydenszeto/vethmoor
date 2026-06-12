@@ -46,6 +46,8 @@ export class Player {
   bobPhase = 0;
   landDip = 0;
   sneaking = false;
+  /** True for the tick in which a footfall lands (audio hook). */
+  stepped = false;
 
   spawnAt(x: number, z: number, yaw: number, q: CollisionQuery): void {
     this.body.x = x;
@@ -109,9 +111,13 @@ export class Player {
     this.landDip *= Math.exp(-7 * dt);
 
     const hSpeed = Math.hypot(this.body.vx, this.body.vz);
-    if (this.body.onGround && hSpeed > 0.6) {
-      this.bobPhase += dt * hSpeed * 1.45;
+    this.stepped = false;
+    if ((this.body.onGround || swimming) && hSpeed > 0.6) {
+      const prev = Math.floor(this.bobPhase / Math.PI);
+      this.bobPhase += dt * hSpeed * (swimming ? 0.7 : 1.45);
+      if (Math.floor(this.bobPhase / Math.PI) !== prev) this.stepped = true;
     }
+    if (this.body.landImpact > 0) this.stepped = true;
   }
 
   /** Interpolated eye position parts for the render camera. */

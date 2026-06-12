@@ -4,21 +4,27 @@
  */
 
 import * as THREE from 'three';
+import { installAudioUnlock } from '@/audio/engine';
+import { Ambience } from '@/audio/ambience';
+import { footstep, landThump, type Surface } from '@/audio/sfx';
 import { config } from '@/engine/config';
 import { events, type GameMode } from '@/engine/events';
 import { input } from '@/engine/input';
 import { GameLoop } from '@/engine/loop';
 import { GameClock } from '@/engine/time';
+import { clamp } from '@/engine/math';
 import { bakeTextures } from '@/gen/textures';
 import { Player } from '@/entities/player';
 import { GameRenderer, type RenderHeight } from '@/render/renderer';
 import { Sky, computeAtmosphere, makeAtmosphere } from '@/render/sky';
-import { BIOMES, BIOME_ORDER } from '@/data/biomes';
+import { WeatherSystem } from '@/render/weather';
+import { BIOMES, BIOME_ORDER, GROUND } from '@/data/biomes';
 import type { BiomeId } from '@/data/ids';
-import { CAMERA_FAR, NEW_GAME_HOUR, VOLCANO_X, VOLCANO_Z } from '@/data/world';
+import { CAMERA_FAR, NEW_GAME_HOUR, VOLCANO_X, VOLCANO_Z, WORLD_SIZE } from '@/data/world';
 import { ChunkManager } from '@/world/chunks';
+import { initRoads, roadDistance } from '@/world/roads';
 import { Streamer } from '@/world/streaming';
-import { biomeWeightsAt, biomeAt, worldHeight } from '@/world/terrain';
+import { biomeWeightsAt, biomeAt, volcanism, worldHeight } from '@/world/terrain';
 import { terrainMaterial } from '@/world/terrainMesh';
 import { Ocean } from '@/world/water';
 
@@ -40,6 +46,8 @@ export class Game {
   readonly chunks = new ChunkManager(this.streamer);
   private sky!: Sky;
   private ocean!: Ocean;
+  private weather!: WeatherSystem;
+  private readonly ambience = new Ambience();
   readonly player = new Player();
 
   private readonly atmo = makeAtmosphere();
@@ -60,8 +68,11 @@ export class Game {
 
   async boot(): Promise<void> {
     bakeTextures();
+    initRoads(); // must precede any height-grid builds
+    installAudioUnlock();
     this.sky = new Sky();
     this.ocean = new Ocean();
+    this.weather = new WeatherSystem(this.scene);
     this.scene.add(this.sky.mesh, this.ocean.mesh, this.chunks.group, this.hemi, this.sun);
     this.scene.fog = new THREE.FogExp2(this.fogColor, this.fogDensity);
 
@@ -112,10 +123,44 @@ export class Game {
       if (!input.uiOpen) {
         this.clock.advance(dt);
         this.player.update(dt, this.chunks);
+        const b = this.player.body;
+        b.x = clamp(b.x, 60, WORLD_SIZE - 60);
+        b.z = clamp(b.z, 60, WORLD_SIZE - 60);
+        if (this.player.stepped) {
+          footstep(this.surfaceAt(b.x, b.z, b.mode === 'swim'), this.player.sneaking);
+        }
+        if (b.landImpact > 7) landThump(Math.min(1, (b.landImpact - 7) / 14));
       }
     }
     input.postSimClear();
   };
+
+  /** Dominant ground layer → footstep surface. */
+  private surfaceAt(x: number, z: number, swimming: boolean): Surface {
+    if (swimming) return 'water';
+    if (roadDistance(x, z) < 3.2) return 'dirt';
+    biomeWeightsAt(x, z, biomeW);
+    let dom = 0;
+    for (let i = 1; i < 6; i++) {
+      if ((biomeW[i] as number) > (biomeW[dom] as number)) dom = i;
+    }
+    const layer = BIOMES[BIOME_ORDER[dom] as BiomeId].groundA;
+    const h = this.chunks.heightAt(x, z);
+    if (h < 0.5) return 'water';
+    switch (layer) {
+      case GROUND.rock:
+        return 'rock';
+      case GROUND.ash:
+      case GROUND.sand:
+        return 'sand';
+      case GROUND.mud:
+        return 'mud';
+      case GROUND.road:
+        return 'dirt';
+      default:
+        return 'grass';
+    }
+  }
 
   // ----- render --------------------------------------------------------------
 
@@ -157,7 +202,20 @@ export class Game {
     // Atmosphere drives everything.
     const hour = this.mode === 'play' || this.mode === 'dead' ? this.clock.hour : MENU_HOUR;
     computeAtmosphere(hour, this.atmo);
+    this.weather.update(1 / 60, this.clock.day, hour, camX, camZ, this.camera.position, this.timeS);
     this.updateAtmosphereUniforms(camX, camZ);
+
+    // Ambient beds follow the camera.
+    biomeWeightsAt(camX, camZ, biomeW);
+    this.ambience.update(
+      biomeW,
+      volcanism(camX, camZ),
+      Math.max(0, 1 - camX / 900),
+      this.weather.rainAmt,
+      this.weather.ashAmt,
+      hour,
+      this.timeS,
+    );
 
     // Streaming around the camera anchor.
     this.chunks.update(camX, camZ, this.timeS);
@@ -183,30 +241,34 @@ export class Game {
       tintG += w * def.fogTint[1];
       tintB += w * def.fogTint[2];
     }
-    this.fogDensity = density * config.fogMult;
+    this.fogDensity = density * config.fogMult * this.weather.fogMult;
     this.fogColor.copy(a.horizon);
     this.fogColor.r *= tintR;
     this.fogColor.g *= tintG;
     this.fogColor.b *= tintB;
+    this.fogColor.lerp(this.weather.fogTint, this.weather.tintAmt);
 
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.copy(this.fogColor);
     fog.density = this.fogDensity;
     this.scene.background = this.fogColor;
 
+    // Weather dims the world.
+    const lm = this.weather.lightMult;
+
     // Lights for Lambert-lit props/entities.
-    this.hemi.color.copy(a.hemiSky);
+    this.hemi.color.copy(a.hemiSky).multiplyScalar(0.6 + 0.4 * lm);
     this.hemi.groundColor.copy(a.hemiGround);
     this.hemi.intensity = 1;
     this.sun.color.copy(a.sunColor);
-    this.sun.intensity = a.sunI * 1.1;
+    this.sun.intensity = a.sunI * 1.1 * lm;
     this.sun.position.set(a.sunDir.x * 100, a.sunDir.y * 100, a.sunDir.z * 100);
 
     // Terrain shader.
     const tu = terrainMaterial().uniforms;
     (tu.uSunDir!.value as THREE.Vector3).copy(a.sunDir);
-    (tu.uSunColor!.value as THREE.Color).copy(a.sunColor).multiplyScalar(a.sunI);
-    (tu.uHemiSky!.value as THREE.Color).copy(a.hemiSky);
+    (tu.uSunColor!.value as THREE.Color).copy(a.sunColor).multiplyScalar(a.sunI * lm);
+    (tu.uHemiSky!.value as THREE.Color).copy(a.hemiSky).multiplyScalar(0.6 + 0.4 * lm);
     (tu.uHemiGround!.value as THREE.Color).copy(a.hemiGround);
     (tu.uFogColor!.value as THREE.Color).copy(this.fogColor);
     tu.uFogDensity!.value = this.fogDensity;
@@ -224,6 +286,10 @@ export class Game {
 
   setHour(h: number): void {
     this.clock.set(this.clock.day, ((h % 24) + 24) % 24 * 60);
+  }
+
+  setWeather(kind: 'clear' | 'overcast' | 'rain' | 'ashstorm'): void {
+    this.weather.force(kind);
   }
 
   stats(): Record<string, unknown> {

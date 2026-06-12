@@ -18,19 +18,29 @@ import {
   gridHeight,
   terrainMaterial,
 } from './terrainMesh';
+import { buildChunkFlora, disposeFlora, type ChunkFlora } from './flora';
 import type { Streamer } from './streaming';
 
 const LOD_DEBOUNCE_S = 0.5;
+const BIG_FLORA_RING = 3;
+const SMALL_FLORA_RING = 2;
+
+/** Variant encodes LOD + flora tiers so ring crossings trigger rebuilds. */
+function variantOf(ring: number): number {
+  const lod = LOD_BY_RING[Math.min(ring, LOD_BY_RING.length - 1)] as number;
+  return lod * 4 + (ring <= BIG_FLORA_RING ? 2 : 0) + (ring <= SMALL_FLORA_RING ? 1 : 0);
+}
 
 interface ChunkRec {
   cx: number;
   cz: number;
   key: string;
-  lod: number; // -1 = no mesh yet
-  wantLod: number;
+  variant: number; // -1 = no mesh yet
+  wantVariant: number;
   wantSince: number;
   mesh: THREE.Mesh | null;
   grid: Float32Array | null;
+  flora: ChunkFlora | null;
 }
 
 const keyOf = (cx: number, cz: number): string => `${cx},${cz}`;
@@ -59,22 +69,32 @@ export class ChunkManager {
         const cx = acx + dx;
         if (cx < 0 || cx >= WORLD_CHUNKS) continue;
         const ring = Math.max(Math.abs(dx), Math.abs(dz));
-        const lod = LOD_BY_RING[Math.min(ring, LOD_BY_RING.length - 1)] as number;
+        const variant = variantOf(ring);
         const key = keyOf(cx, cz);
         let rec = this.recs.get(key);
         if (!rec) {
-          rec = { cx, cz, key, lod: -1, wantLod: lod, wantSince: nowS, mesh: null, grid: null };
+          rec = {
+            cx,
+            cz,
+            key,
+            variant: -1,
+            wantVariant: variant,
+            wantSince: nowS,
+            mesh: null,
+            grid: null,
+            flora: null,
+          };
           this.recs.set(key, rec);
-          this.enqueueBuild(rec, lod, ring);
-        } else if (rec.lod !== lod) {
-          if (rec.wantLod !== lod) {
-            rec.wantLod = lod;
+          this.enqueueBuild(rec, ring);
+        } else if (rec.variant !== variant) {
+          if (rec.wantVariant !== variant) {
+            rec.wantVariant = variant;
             rec.wantSince = nowS;
           } else if (rec.mesh === null || nowS - rec.wantSince >= LOD_DEBOUNCE_S) {
-            this.enqueueBuild(rec, lod, ring);
+            this.enqueueBuild(rec, ring);
           }
         } else {
-          rec.wantLod = lod;
+          rec.wantVariant = variant;
           this.streamer.cancel(key);
         }
       }
@@ -89,7 +109,11 @@ export class ChunkManager {
     }
   }
 
-  private enqueueBuild(rec: ChunkRec, lod: number, ring: number): void {
+  private enqueueBuild(rec: ChunkRec, ring: number): void {
+    const variant = variantOf(ring);
+    const lod = Math.floor(variant / 4);
+    const withBig = (variant & 2) !== 0;
+    const withSmall = (variant & 1) !== 0;
     this.streamer.enqueue({
       key: rec.key,
       prio: ring,
@@ -109,9 +133,26 @@ export class ChunkManager {
           rec.mesh = mesh;
           this.group.add(mesh);
         }
-        rec.lod = lod;
+        // Flora tiers.
+        if (rec.flora) {
+          this.removeFlora(rec);
+        }
+        if (withBig || withSmall) {
+          rec.flora = buildChunkFlora(rec.cx, rec.cz, rec.grid, withBig, withSmall);
+          if (rec.flora.big) this.group.add(rec.flora.big);
+          for (const im of rec.flora.small) this.group.add(im);
+        }
+        rec.variant = variant;
       },
     });
+  }
+
+  private removeFlora(rec: ChunkRec): void {
+    if (!rec.flora) return;
+    if (rec.flora.big) this.group.remove(rec.flora.big);
+    for (const im of rec.flora.small) this.group.remove(im);
+    disposeFlora(rec.flora);
+    rec.flora = null;
   }
 
   private dispose(rec: ChunkRec): void {
@@ -120,6 +161,7 @@ export class ChunkManager {
       this.group.remove(rec.mesh);
       rec.mesh.geometry.dispose();
     }
+    this.removeFlora(rec);
     this.recs.delete(rec.key);
   }
 

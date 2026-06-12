@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { Game } from '@/Game';
+import { audio } from '@/audio/engine';
 import { loadSettings, applySettings } from '@/engine/config';
 import { input } from '@/engine/input';
 import { setWorldSeed } from '@/engine/rng';
@@ -21,6 +22,7 @@ registerGameAPI({
   applySettings: (partial) => {
     applySettings(partial);
     if (partial.renderHeight) game.setRenderHeight(partial.renderHeight);
+    audio.applyVolumes();
   },
 });
 
@@ -38,5 +40,6 @@ if (import.meta.env.DEV) {
     stats: () => game.stats(),
     tp: (x: number, z: number) => game.tp(x, z),
     setHour: (h: number) => game.setHour(h),
+    setWeather: (k: 'clear' | 'overcast' | 'rain' | 'ashstorm') => game.setWeather(k),
   };
 }
