@@ -1,13 +1,21 @@
 /**
- * Kinematic capsule mover. P1: terrain clamp + slope slide + jump + swim.
- * P3 adds axis-separated AABB resolution + step-up against building/prop
- * colliders (the hooks are in place: moveX/moveZ are already separate).
- *
- * At 60 Hz fixed step and ≤ 9 m/s the per-tick displacement (≤ 0.15 m) is far
- * below the capsule radius — tunneling is impossible by construction.
+ * Kinematic capsule mover: terrain/floor clamp + axis-separated AABB
+ * resolution with step-up, slope slide, jump, swim, levitate. The capsule is
+ * treated as a vertical box (r × height) for statics — at our scales and
+ * 60 Hz steps the difference from a true capsule is imperceptible, and the
+ * axis-separated resolve is corner-safe by construction.
  */
 
-import { GRAVITY, JUMP_V0, SEA_LEVEL, SWIM_DEPTH, TERMINAL_V } from '@/data/world';
+import {
+  GRAVITY,
+  JUMP_V0,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
+  SEA_LEVEL,
+  STEP_UP,
+  SWIM_DEPTH,
+  TERMINAL_V,
+} from '@/data/world';
 import type { Aabb } from './math';
 
 export type MoveMode = 'walk' | 'swim' | 'levitate';
@@ -21,32 +29,35 @@ export interface BodyState {
   vz: number;
   onGround: boolean;
   mode: MoveMode;
-  /** Vertical speed at the moment of the last landing (for camera dip / fall damage). */
   landImpact: number;
 }
 
 export interface MoveInput {
-  /** Desired horizontal velocity (already speed-scaled). */
   ax: number;
   az: number;
-  /** Desired vertical velocity for swim/levitate. */
   ay: number;
   jump: boolean;
 }
 
 export interface CollisionQuery {
+  /** Base support height (terrain outdoors, room floor indoors). */
   heightAt(x: number, z: number): number;
   normalAt(x: number, z: number, out: { x: number; y: number; z: number }): void;
-  /** Static colliders near a point (P3+; empty for now). */
-  aabbsNear?(x: number, z: number, radius: number): readonly Aabb[];
+  /** Static AABBs near a point (radius ~2 m). */
+  aabbsNear(x: number, z: number, radius: number, out: Aabb[]): readonly Aabb[];
+  /** True outdoors (enables swim transitions + slope slide). */
+  isExterior(): boolean;
 }
 
-const SLOPE_LIMIT_NY = 0.62; // cos ~52°
+const SLOPE_LIMIT_NY = 0.62;
 const GROUND_ACCEL = 38;
 const AIR_ACCEL = 9;
 const SWIM_ACCEL = 14;
+const R = PLAYER_RADIUS;
+const H = PLAYER_HEIGHT;
 
 const scratchN = { x: 0, y: 1, z: 0 };
+const boxes: Aabb[] = [];
 
 function approach(v: number, target: number, maxDelta: number): number {
   const d = target - v;
@@ -55,19 +66,84 @@ function approach(v: number, target: number, maxDelta: number): number {
   return target;
 }
 
+function overlapsY(st: BodyState, b: Aabb): boolean {
+  return st.y + 0.02 < b.maxY && st.y + H > b.minY;
+}
+
+function overlapsXZ(x: number, z: number, b: Aabb): boolean {
+  return x + R > b.minX && x - R < b.maxX && z + R > b.minZ && z - R < b.maxZ;
+}
+
+/** Can the body stand at height y (no box blocks the capsule)? */
+function spaceFreeAt(x: number, y: number, z: number): boolean {
+  for (const b of boxes) {
+    if (overlapsXZ(x, z, b) && y + 0.02 < b.maxY && y + H > b.minY) return false;
+  }
+  return true;
+}
+
+/** Resolve one horizontal axis against static boxes (with step-up). */
+function resolveAxis(st: BodyState, axis: 'x' | 'z'): void {
+  for (const b of boxes) {
+    if (!overlapsXZ(st.x, st.z, b) || !overlapsY(st, b)) continue;
+    // Step-up: low obstacle with free space on top.
+    const rise = b.maxY - st.y;
+    if (rise > 0 && rise <= STEP_UP && spaceFreeAt(st.x, b.maxY, st.z)) {
+      st.y = b.maxY;
+      st.onGround = true;
+      if (st.vy < 0) st.vy = 0;
+      continue;
+    }
+    if (axis === 'x') {
+      const penL = st.x + R - b.minX;
+      const penR = b.maxX - (st.x - R);
+      st.x += penL < penR ? -penL : penR;
+      st.vx = 0;
+    } else {
+      const penL = st.z + R - b.minZ;
+      const penR = b.maxZ - (st.z - R);
+      st.z += penL < penR ? -penL : penR;
+      st.vz = 0;
+    }
+  }
+}
+
+/** Highest support top under the feet (boxes only). */
+function boxSupport(st: BodyState): number {
+  let support = -Infinity;
+  for (const b of boxes) {
+    if (!overlapsXZ(st.x, st.z, b)) continue;
+    if (b.maxY <= st.y + STEP_UP + 0.01 && b.maxY > support) {
+      // Only count tops that are below (or barely above) the feet.
+      support = b.maxY;
+    }
+  }
+  return support;
+}
+
+/** Lowest ceiling above the head. */
+function ceilingAbove(st: BodyState): number {
+  let ceil = Infinity;
+  for (const b of boxes) {
+    if (!overlapsXZ(st.x, st.z, b)) continue;
+    if (b.minY >= st.y + H * 0.5 && b.minY < ceil) ceil = b.minY;
+  }
+  return ceil;
+}
+
 export function stepBody(st: BodyState, inp: MoveInput, dt: number, q: CollisionQuery): void {
   st.landImpact = 0;
+  q.aabbsNear(st.x, st.z, 2.5, boxes);
 
   if (st.mode === 'swim') {
     stepSwim(st, inp, dt, q);
     return;
   }
   if (st.mode === 'levitate') {
-    stepLevitate(st, inp, dt, q);
+    stepFly(st, inp, dt, q);
     return;
   }
 
-  // ---- walk ----
   const accel = st.onGround ? GROUND_ACCEL : AIR_ACCEL;
   st.vx = approach(st.vx, inp.ax, accel * dt);
   st.vz = approach(st.vz, inp.az, accel * dt);
@@ -80,76 +156,101 @@ export function stepBody(st: BodyState, inp: MoveInput, dt: number, q: Collision
   st.vy -= GRAVITY * dt;
   if (st.vy < -TERMINAL_V) st.vy = -TERMINAL_V;
 
-  // Horizontal axes move separately (AABB resolution slots in here in P3).
+  // Horizontal, axis-separated.
   st.x += st.vx * dt;
+  resolveAxis(st, 'x');
   st.z += st.vz * dt;
+  resolveAxis(st, 'z');
+
+  // Vertical.
   st.y += st.vy * dt;
 
-  const gh = q.heightAt(st.x, st.z);
+  // Ceiling.
+  const ceil = ceilingAbove(st);
+  if (st.y + H > ceil) {
+    st.y = ceil - H;
+    if (st.vy > 0) st.vy = 0;
+  }
+
+  // Support: terrain/floor or box top.
+  const groundH = q.heightAt(st.x, st.z);
+  const support = Math.max(groundH, boxSupport(st));
   const wasGround = st.onGround;
-  if (st.y <= gh) {
-    q.normalAt(st.x, st.z, scratchN);
-    if (scratchN.y < SLOPE_LIMIT_NY) {
-      // Too steep: stand on it but slide downhill, no jumping.
-      st.y = gh;
+
+  if (st.y <= support) {
+    let steep = false;
+    if (q.isExterior() && support === groundH) {
+      q.normalAt(st.x, st.z, scratchN);
+      steep = scratchN.y < SLOPE_LIMIT_NY;
+    }
+    if (steep) {
+      st.y = support;
       st.onGround = false;
-      const push = 16 * dt;
-      st.vx += scratchN.x * push * 2.2;
-      st.vz += scratchN.z * push * 2.2;
+      st.vx += scratchN.x * 35 * dt;
+      st.vz += scratchN.z * 35 * dt;
       if (st.vy < 0) st.vy *= 0.6;
     } else {
       if (!wasGround && st.vy < -6) st.landImpact = -st.vy;
-      st.y = gh;
+      st.y = support;
       st.vy = 0;
       st.onGround = true;
     }
-  } else if (st.y > gh + 0.02) {
+  } else if (st.y > support + 0.02) {
     st.onGround = false;
   }
 
-  // Deep water → swim.
-  const depthHere = SEA_LEVEL - gh;
-  if (depthHere > SWIM_DEPTH && st.y < SEA_LEVEL - SWIM_DEPTH) {
-    st.mode = 'swim';
-    st.onGround = false;
-    st.vy *= 0.3;
+  // Deep water → swim (exterior only).
+  if (q.isExterior()) {
+    const depthHere = SEA_LEVEL - groundH;
+    if (depthHere > SWIM_DEPTH && st.y < SEA_LEVEL - SWIM_DEPTH) {
+      st.mode = 'swim';
+      st.onGround = false;
+      st.vy *= 0.3;
+    }
   }
 }
 
 function stepSwim(st: BodyState, inp: MoveInput, dt: number, q: CollisionQuery): void {
   st.vx = approach(st.vx, inp.ax, SWIM_ACCEL * dt);
   st.vz = approach(st.vz, inp.az, SWIM_ACCEL * dt);
-  st.vy = approach(st.vy, inp.ay - 0.3, SWIM_ACCEL * dt); // slight sink
+  st.vy = approach(st.vy, inp.ay - 0.3, SWIM_ACCEL * dt);
 
   st.x += st.vx * dt;
+  resolveAxis(st, 'x');
   st.z += st.vz * dt;
+  resolveAxis(st, 'z');
   st.y += st.vy * dt;
 
   const gh = q.heightAt(st.x, st.z);
   if (st.y < gh + 0.25) st.y = gh + 0.25;
 
-  // Don't float above the surface.
   const surfaceY = SEA_LEVEL - 0.55;
   if (st.y > surfaceY) {
     st.y = surfaceY;
     if (st.vy > 0) st.vy = 0;
   }
 
-  // Ground rose to meet us (walking out of the water).
   if (SEA_LEVEL - gh < SWIM_DEPTH * 0.8) {
     st.mode = 'walk';
     st.y = Math.max(st.y, gh);
   }
 }
 
-function stepLevitate(st: BodyState, inp: MoveInput, dt: number, q: CollisionQuery): void {
+function stepFly(st: BodyState, inp: MoveInput, dt: number, q: CollisionQuery): void {
   st.vx = approach(st.vx, inp.ax, 18 * dt);
   st.vz = approach(st.vz, inp.az, 18 * dt);
   st.vy = approach(st.vy, inp.ay, 18 * dt);
   st.x += st.vx * dt;
+  resolveAxis(st, 'x');
   st.z += st.vz * dt;
+  resolveAxis(st, 'z');
   st.y += st.vy * dt;
-  const gh = q.heightAt(st.x, st.z);
+  const ceil = ceilingAbove(st);
+  if (st.y + H > ceil) {
+    st.y = ceil - H;
+    if (st.vy > 0) st.vy = 0;
+  }
+  const gh = Math.max(q.heightAt(st.x, st.z), boxSupport(st));
   if (st.y < gh) {
     st.y = gh;
     st.onGround = true;

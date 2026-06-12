@@ -22,6 +22,8 @@ interface UiState {
   hasSave: boolean;
   settings: GameSettings;
   pointerLocked: boolean;
+  prompt: string | null;
+  fading: boolean;
   setSettings: (partial: Partial<GameSettings>) => void;
   dismissToast: (id: number) => void;
 }
@@ -33,6 +35,8 @@ export const useUi = create<UiState>()((set) => ({
   hasSave: false,
   settings: { ...config },
   pointerLocked: false,
+  prompt: null,
+  fading: false,
   setSettings: (partial) =>
     set((s) => {
       gameApi().applySettings(partial);
@@ -76,6 +80,8 @@ export function initUiBridge(): void {
   events.on('game:mode', ({ mode }) => useUi.setState({ gameMode: mode }));
   events.on('ui:stack', ({ stack }) => useUi.setState({ uiStack: stack }));
   events.on('input:lock', ({ locked }) => useUi.setState({ pointerLocked: locked }));
+  events.on('hud:prompt', ({ text }) => useUi.setState({ prompt: text }));
+  events.on('screen:fade', ({ on }) => useUi.setState({ fading: on }));
   events.on('toast', ({ text, kind }) =>
     useUi.setState((s) => ({
       toasts: [...s.toasts.slice(-3), { id: toastId++, text, kind }],

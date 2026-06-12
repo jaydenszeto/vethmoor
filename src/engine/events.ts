@@ -24,6 +24,10 @@ export interface EventMap {
   'input:hotkey': { slot: number };
   /** Game clock: hour boundary crossed (schedules, ambience). */
   'time:hour': { hour: number; day: number };
+  /** Cell-transition blackout. */
+  'screen:fade': { on: boolean };
+  /** Crosshair interaction prompt (null clears). */
+  'hud:prompt': { text: string | null };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

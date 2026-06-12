@@ -79,9 +79,15 @@ export function translate(geo: THREE.BufferGeometry, x: number, y: number, z: nu
   return geo;
 }
 
-/** Merge parts into one geometry (parts are consumed/disposed). */
+/** Merge parts into one geometry (parts are consumed/disposed). UVs are
+ * stripped — everything procedural is vertex-colored, and attribute sets
+ * must match for mergeGeometries. */
 export function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const noIndex = parts.map((p) => (p.index ? p.toNonIndexed() : p));
+  for (const p of noIndex) {
+    p.deleteAttribute('uv');
+    p.deleteAttribute('uv1');
+  }
   const merged = mergeGeometries(noIndex, false);
   for (const p of parts) p.dispose();
   for (const p of noIndex) {

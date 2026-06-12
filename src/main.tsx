@@ -41,5 +41,14 @@ if (import.meta.env.DEV) {
     tp: (x: number, z: number) => game.tp(x, z),
     setHour: (h: number) => game.setHour(h),
     setWeather: (k: 'clear' | 'overcast' | 'rain' | 'ashstorm') => game.setWeather(k),
+    closeUi: () => input.clearModes(),
+    interact: () => {
+      // Headless-friendly: simulate an E press routed through the real path.
+      document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', bubbles: true }));
+      window.setTimeout(
+        () => document.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', bubbles: true })),
+        30,
+      );
+    },
   };
 }

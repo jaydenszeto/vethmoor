@@ -27,6 +27,8 @@ import { Streamer } from '@/world/streaming';
 import { biomeWeightsAt, biomeAt, volcanism, worldHeight } from '@/world/terrain';
 import { terrainMaterial } from '@/world/terrainMesh';
 import { Ocean } from '@/world/water';
+import { WorldManager } from '@/world/WorldManager';
+import { updateInteract } from '@/systems/interact';
 
 const MENU_HOUR = 18.15;
 const SPAWN = { x: 1825, z: 9745, yaw: -Math.PI * 0.38 };
@@ -44,11 +46,13 @@ export class Game {
 
   private readonly streamer = new Streamer();
   readonly chunks = new ChunkManager(this.streamer);
+  readonly world = new WorldManager(this.chunks);
   private sky!: Sky;
   private ocean!: Ocean;
   private weather!: WeatherSystem;
   private readonly ambience = new Ambience();
   readonly player = new Player();
+  private readonly interiorAmbient = new THREE.AmbientLight(0x141210, 1);
 
   private readonly atmo = makeAtmosphere();
   private readonly fogColor = new THREE.Color(0x9aa49a);
@@ -73,8 +77,36 @@ export class Game {
     this.sky = new Sky();
     this.ocean = new Ocean();
     this.weather = new WeatherSystem(this.scene);
-    this.scene.add(this.sky.mesh, this.ocean.mesh, this.chunks.group, this.hemi, this.sun);
+    this.scene.add(
+      this.sky.mesh,
+      this.ocean.mesh,
+      this.chunks.group,
+      this.world.sitesGroup,
+      this.world.interiorGroup,
+      this.hemi,
+      this.sun,
+      this.interiorAmbient,
+    );
+    this.interiorAmbient.visible = false;
     this.scene.fog = new THREE.FogExp2(this.fogColor, this.fogDensity);
+
+    this.world.onPlayerPlace = (x, y, z, yaw) => {
+      this.player.body.x = x;
+      this.player.body.y = y;
+      this.player.body.z = z;
+      this.player.body.vx = this.player.body.vy = this.player.body.vz = 0;
+      this.player.prevX = x;
+      this.player.prevY = y;
+      this.player.prevZ = z;
+      this.player.yaw = yaw;
+    };
+    this.world.onCellChanged = (cell) => {
+      const inside = cell !== null;
+      this.sky.mesh.visible = !inside;
+      this.ocean.mesh.visible = !inside;
+      this.interiorAmbient.visible = inside;
+      if (inside && cell) this.interiorAmbient.color.setHex(cell.ambient).multiplyScalar(2.4);
+    };
 
     // Warm the menu vista before first paint.
     const cam = this.menuCamPos(0);
@@ -92,8 +124,9 @@ export class Game {
 
   newGame(): void {
     this.clock.set(1, NEW_GAME_HOUR * 60);
-    this.player.spawnAt(SPAWN.x, SPAWN.z, SPAWN.yaw, this.chunks);
+    this.player.spawnAt(SPAWN.x, SPAWN.z, SPAWN.yaw, this.world.query);
     this.warmup(SPAWN.x, SPAWN.z, 1500);
+    this.world.update(SPAWN.x, SPAWN.z);
     this.setMode('play');
   }
 
@@ -122,12 +155,18 @@ export class Game {
     if (this.mode === 'play') {
       if (!input.uiOpen) {
         this.clock.advance(dt);
-        this.player.update(dt, this.chunks);
+        this.player.update(dt, this.world.query);
         const b = this.player.body;
-        b.x = clamp(b.x, 60, WORLD_SIZE - 60);
-        b.z = clamp(b.z, 60, WORLD_SIZE - 60);
+        if (!this.world.isInterior) {
+          b.x = clamp(b.x, 60, WORLD_SIZE - 60);
+          b.z = clamp(b.z, 60, WORLD_SIZE - 60);
+        }
+        updateInteract(this.player, this.world);
         if (this.player.stepped) {
-          footstep(this.surfaceAt(b.x, b.z, b.mode === 'swim'), this.player.sneaking);
+          footstep(
+            this.world.isInterior ? 'rock' : this.surfaceAt(b.x, b.z, b.mode === 'swim'),
+            this.player.sneaking,
+          );
         }
         if (b.landImpact > 7) landThump(Math.min(1, (b.landImpact - 7) / 14));
       }
@@ -199,27 +238,42 @@ export class Game {
       this.camera.lookAt(this.menuCamTarget);
     }
 
-    // Atmosphere drives everything.
     const hour = this.mode === 'play' || this.mode === 'dead' ? this.clock.hour : MENU_HOUR;
-    computeAtmosphere(hour, this.atmo);
-    this.weather.update(1 / 60, this.clock.day, hour, camX, camZ, this.camera.position, this.timeS);
-    this.updateAtmosphereUniforms(camX, camZ);
 
-    // Ambient beds follow the camera.
-    biomeWeightsAt(camX, camZ, biomeW);
-    this.ambience.update(
-      biomeW,
-      volcanism(camX, camZ),
-      Math.max(0, 1 - camX / 900),
-      this.weather.rainAmt,
-      this.weather.ashAmt,
-      hour,
-      this.timeS,
-    );
+    if (this.world.isInterior) {
+      // Interior gloom: short dark fog, lights carried by the cell.
+      const cell = this.world.interior;
+      const fog = this.scene.fog as THREE.FogExp2;
+      fog.color.setHex(cell ? cell.ambient : 0x0b0a0c);
+      fog.density = 0.05;
+      this.scene.background = fog.color;
+      this.sun.intensity = 0;
+      this.hemi.intensity = 0.25;
+      this.hemi.color.setHex(0x6a6258);
+      this.hemi.groundColor.setHex(0x14110e);
+    } else {
+      // Atmosphere drives everything.
+      computeAtmosphere(hour, this.atmo);
+      this.weather.update(1 / 60, this.clock.day, hour, camX, camZ, this.camera.position, this.timeS);
+      this.updateAtmosphereUniforms(camX, camZ);
 
-    // Streaming around the camera anchor.
-    this.chunks.update(camX, camZ, this.timeS);
-    this.streamer.pump();
+      // Ambient beds follow the camera.
+      biomeWeightsAt(camX, camZ, biomeW);
+      this.ambience.update(
+        biomeW,
+        volcanism(camX, camZ),
+        Math.max(0, 1 - camX / 900),
+        this.weather.rainAmt,
+        this.weather.ashAmt,
+        hour,
+        this.timeS,
+      );
+
+      // Streaming around the camera anchor.
+      this.chunks.update(camX, camZ, this.timeS);
+      this.world.update(camX, camZ);
+      this.streamer.pump();
+    }
 
     this.renderer.renderFrame(this.scene, this.camera);
   };
@@ -280,8 +334,10 @@ export class Game {
   // ----- dev helpers -----------------------------------------------------------
 
   tp(x: number, z: number): void {
-    this.player.spawnAt(x, z, this.player.yaw, this.chunks);
+    if (this.world.isInterior) void this.world.exitInterior();
+    this.player.spawnAt(x, z, this.player.yaw, this.world.query);
     this.warmup(x, z, 2000);
+    this.world.update(x, z);
   }
 
   setHour(h: number): void {
