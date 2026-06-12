@@ -12,6 +12,9 @@ export function PauseMenu() {
         <button type="button" className="vm-btn" onClick={() => gameApi().closeTop()}>
           Return
         </button>
+        <button type="button" className="vm-btn" onClick={() => gameApi().openWindow('saves')}>
+          Chronicles
+        </button>
         <button type="button" className="vm-btn" onClick={() => gameApi().openWindow('settings')}>
           Settings
         </button>

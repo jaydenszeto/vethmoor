@@ -2,6 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { Game } from '@/Game';
 import { audio } from '@/audio/engine';
 import { loadSettings, applySettings } from '@/engine/config';
+import { deleteSave, listSaves } from '@/engine/saves';
+import { equipItem, unequipSlot, usePotion } from '@/systems/inventory';
 import { input } from '@/engine/input';
 import { setWorldSeed } from '@/engine/rng';
 import { App } from '@/ui/App';
@@ -15,7 +17,7 @@ const game = new Game(canvas);
 
 registerGameAPI({
   newGame: () => game.newGame(),
-  continueGame: () => undefined, // saves arrive in P4
+  continueGame: () => void game.continueGame(),
   toMenu: () => game.toMenu(),
   closeTop: () => input.popMode(),
   openWindow: (mode) => input.pushMode(mode),
@@ -24,6 +26,26 @@ registerGameAPI({
     if (partial.renderHeight) game.setRenderHeight(partial.renderHeight);
     audio.applyVolumes();
   },
+  finishChargen: (name, race, classId, stone) => game.finishChargen(name, race, classId, stone),
+  getCharacter: () => game.character,
+  equipItem: (id) => {
+    if (game.character) equipItem(game.character, id);
+    game.pushHudStats();
+  },
+  unequipSlot: (slot) => {
+    if (game.character) unequipSlot(game.character, slot);
+    game.pushHudStats();
+  },
+  usePotion: (id) => {
+    if (game.character) usePotion(game.character, id);
+    game.pushHudStats();
+  },
+  lootTake: (index) => game.lootTake(index),
+  saveSlot: (slot, label) => game.saveSlot(slot, label),
+  loadSlot: (slot) => game.loadSlot(slot),
+  deleteSave: (slot) => deleteSave(slot),
+  listSaves: () => listSaves(),
+  getYaw: () => game.player.yaw,
 });
 
 initUiBridge();

@@ -29,6 +29,32 @@ import { terrainMaterial } from '@/world/terrainMesh';
 import { Ocean } from '@/world/water';
 import { WorldManager } from '@/world/WorldManager';
 import { updateInteract } from '@/systems/interact';
+import { itemId } from '@/data/ids';
+import { validateItems } from '@/data/items';
+import {
+  createCharacter,
+  maxCarry,
+  recalcDerived,
+  regenTick,
+  levelUpReady,
+  walkSpeed,
+  type BirthStone,
+  type Character,
+} from '@/systems/stats';
+import { trackTravel } from '@/systems/skills';
+import { addItem, encumbrance } from '@/systems/inventory';
+import { containerContents, restoreContainers, clearContainers, serializeContainers } from '@/systems/loot';
+import {
+  latestSave,
+  readSave,
+  writeSave,
+  SAVE_VERSION,
+  type SaveGame,
+  type SlotId,
+} from '@/engine/saves';
+import { getWorldSeedStr } from '@/engine/rng';
+import type { Culture } from '@/gen/names';
+import type { Entity } from '@/entities/entity';
 
 const MENU_HOUR = 18.15;
 const SPAWN = { x: 1825, z: 9745, yaw: -Math.PI * 0.38 };
@@ -63,6 +89,12 @@ export class Game {
   private timeS = 0;
   private menuDrift = 0;
 
+  character: Character | null = null;
+  /** Open container (entity + live contents reference). */
+  private openContainer: Entity | null = null;
+  private hudTick = 0;
+  private restoring = false;
+
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new GameRenderer(canvas);
     this.camera = new THREE.PerspectiveCamera(71, this.renderer.aspect, 0.08, CAMERA_FAR);
@@ -71,6 +103,7 @@ export class Game {
   }
 
   async boot(): Promise<void> {
+    if (import.meta.env.DEV) validateItems();
     bakeTextures();
     initRoads(); // must precede any height-grid builds
     installAudioUnlock();
@@ -106,7 +139,25 @@ export class Game {
       this.ocean.mesh.visible = !inside;
       this.interiorAmbient.visible = inside;
       if (inside && cell) this.interiorAmbient.color.setHex(cell.ambient).multiplyScalar(2.4);
+      // Autosave on every cell transition (the Morrowind safety net).
+      if (!this.restoring && this.character && this.mode === 'play') {
+        void this.saveSlot('auto', 'Autosave');
+      }
     };
+    this.world.onContainerOpen = (e) => {
+      this.openContainer = e;
+      events.emit('container:open', {
+        label: e.prompt ?? 'Container',
+        items: containerContents(e.id as string, (e.data.tag as string) ?? 'chest:home'),
+      });
+      input.pushMode('container');
+    };
+
+    events.on('input:hotkey', ({ slot }) => {
+      if (this.mode !== 'play') return;
+      if (slot === -1) void this.saveSlot('quick', 'Quicksave');
+      else if (slot === -2) void this.loadSlot('quick');
+    });
 
     // Warm the menu vista before first paint.
     const cam = this.menuCamPos(0);
@@ -122,17 +173,113 @@ export class Game {
     events.emit('game:mode', { mode });
   }
 
+  /** New Game → character creation (menu vista keeps drifting behind). */
   newGame(): void {
+    this.setMode('chargen');
+  }
+
+  finishChargen(name: string, race: Culture, classId: string, stone: BirthStone): void {
+    this.character = createCharacter(name || 'The Writ-Bearer', race, classId, stone);
+    clearContainers();
     this.clock.set(1, NEW_GAME_HOUR * 60);
     this.player.spawnAt(SPAWN.x, SPAWN.z, SPAWN.yaw, this.world.query);
     this.warmup(SPAWN.x, SPAWN.z, 1500);
     this.world.update(SPAWN.x, SPAWN.z);
     this.setMode('play');
+    events.emit('toast', { text: 'Saltmere. The seer’s summons is three weeks old already.', kind: 'quest' });
+    this.pushHudStats();
+  }
+
+  async continueGame(): Promise<void> {
+    const slot = await latestSave();
+    if (slot) await this.loadSlot(slot);
   }
 
   toMenu(): void {
     input.clearModes();
     this.setMode('menu');
+  }
+
+  // ----- saves -----------------------------------------------------------------
+
+  captureSave(label: string): SaveGame | null {
+    const c = this.character;
+    if (!c) return null;
+    const b = this.player.body;
+    const ret = this.world.returnPoint;
+    return {
+      version: SAVE_VERSION,
+      seedStr: getWorldSeedStr(),
+      savedAt: Date.now(),
+      label,
+      playerLabel: `${c.name}, level ${c.level} — ${this.clock.label}`,
+      clock: { day: this.clock.day, minOfDay: this.clock.minOfDay },
+      player: {
+        x: b.x,
+        y: b.y,
+        z: b.z,
+        yaw: this.player.yaw,
+        cell: this.world.interior ? (this.world.interior.id as string) : null,
+        returnX: ret.x,
+        returnZ: ret.z,
+        returnYaw: ret.yaw,
+        character: JSON.parse(JSON.stringify(c)) as Character,
+      },
+      containers: serializeContainers(),
+      ext: {},
+    };
+  }
+
+  async saveSlot(slot: SlotId, label: string): Promise<boolean> {
+    const save = this.captureSave(label);
+    if (!save) return false;
+    const ok = await writeSave(slot, save);
+    if (ok) events.emit('toast', { text: `Saved — ${label}`, kind: 'info' });
+    return ok;
+  }
+
+  async loadSlot(slot: SlotId): Promise<boolean> {
+    const save = await readSave(slot);
+    if (!save) return false;
+    this.restoring = true;
+    input.clearModes();
+    this.character = save.player.character;
+    recalcDerived(this.character);
+    restoreContainers(save.containers);
+    this.clock.set(save.clock.day, save.clock.minOfDay);
+    if (this.world.isInterior) await this.world.exitInterior();
+
+    const p = save.player;
+    if (p.cell) {
+      // Load the site (registers factories), then walk through the door.
+      this.player.spawnAt(p.returnX, p.returnZ, p.returnYaw, this.world.query);
+      this.warmup(p.returnX, p.returnZ, 1500);
+      this.world.update(p.returnX, p.returnZ);
+      await this.world.enterInterior({
+        cell: p.cell as never,
+        returnX: p.returnX,
+        returnZ: p.returnZ,
+        returnYaw: p.returnYaw,
+      });
+      this.player.body.x = p.x;
+      this.player.body.y = p.y;
+      this.player.body.z = p.z;
+      this.player.prevX = p.x;
+      this.player.prevY = p.y;
+      this.player.prevZ = p.z;
+      this.player.yaw = p.yaw;
+    } else {
+      this.player.spawnAt(p.x, p.z, p.yaw, this.world.query);
+      this.player.body.y = p.y;
+      this.player.prevY = p.y;
+      this.warmup(p.x, p.z, 1500);
+      this.world.update(p.x, p.z);
+    }
+    this.setMode('play');
+    this.pushHudStats();
+    events.emit('toast', { text: `Loaded — ${save.label}`, kind: 'info' });
+    this.restoring = false;
+    return true;
   }
 
   setRenderHeight(h: RenderHeight): void {
@@ -155,12 +302,35 @@ export class Game {
     if (this.mode === 'play') {
       if (!input.uiOpen) {
         this.clock.advance(dt);
+        const c = this.character;
+        if (c) {
+          // Movement parameters from the sheet.
+          const enc = encumbrance(c);
+          const over = enc > maxCarry(c);
+          this.player.walkSpeedBase = walkSpeed(c) * (over ? 0.5 : 1);
+          this.player.sprintAllowed = !over && c.fat > 1;
+          this.player.jumpAllowed = !over && c.fat > 4;
+        }
+
         this.player.update(dt, this.world.query);
         const b = this.player.body;
         if (!this.world.isInterior) {
           b.x = clamp(b.x, 60, WORLD_SIZE - 60);
           b.z = clamp(b.z, 60, WORLD_SIZE - 60);
         }
+
+        if (c) {
+          regenTick(c, dt, this.player.sprinting);
+          const moved = Math.hypot(b.x - this.player.prevX, b.z - this.player.prevZ);
+          if (moved > 0.001) trackTravel(c, moved, b.mode === 'swim');
+          if (this.player.jumped) c.fat = Math.max(0, c.fat - 5);
+          this.hudTick++;
+          if (this.hudTick >= 6) {
+            this.hudTick = 0;
+            this.pushHudStats();
+          }
+        }
+
         updateInteract(this.player, this.world);
         if (this.player.stepped) {
           footstep(
@@ -173,6 +343,49 @@ export class Game {
     }
     input.postSimClear();
   };
+
+  pushHudStats(): void {
+    const c = this.character;
+    if (!c) return;
+    events.emit('hud:stats', {
+      hp: c.hp,
+      hpMax: c.hpMax,
+      mp: c.mp,
+      mpMax: c.mpMax,
+      fat: c.fat,
+      fatMax: c.fatMax,
+      enc: encumbrance(c),
+      encMax: maxCarry(c),
+      levelReady: levelUpReady(c),
+    });
+  }
+
+  /** Loot-take from the open container. index -1 = take all. */
+  lootTake(index: number): void {
+    const c = this.character;
+    const cont = this.openContainer;
+    if (!c || !cont) return;
+    const items = containerContents(cont.id as string, (cont.data.tag as string) ?? 'chest:home');
+    const takeOne = (i: number): void => {
+      const stack = items[i];
+      if (!stack) return;
+      if (stack.id === itemId('gold')) {
+        c.gold += stack.n;
+        events.emit('toast', { text: `${stack.n} gold`, kind: 'item' });
+      } else {
+        addItem(c, stack.id, stack.n);
+      }
+      items.splice(i, 1);
+    };
+    if (index < 0) {
+      while (items.length) takeOne(0);
+    } else {
+      takeOne(index);
+    }
+    events.emit('container:open', { label: cont.prompt ?? 'Container', items: [...items] });
+    events.emit('char:changed', {});
+    this.pushHudStats();
+  }
 
   /** Dominant ground layer → footstep surface. */
   private surfaceAt(x: number, z: number, swimming: boolean): Surface {

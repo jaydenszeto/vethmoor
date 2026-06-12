@@ -8,8 +8,14 @@ import { topMode, useUi } from '@/ui/store';
 import { MainMenu } from '@/ui/menus/MainMenu';
 import { PauseMenu } from '@/ui/menus/PauseMenu';
 import { SettingsMenu } from '@/ui/menus/SettingsMenu';
+import { SaveLoadMenu } from '@/ui/menus/SaveLoadMenu';
+import { CharGen } from '@/ui/chargen/CharGen';
+import { Hud } from '@/ui/hud/Hud';
 import { Toasts } from '@/ui/hud/Toasts';
 import { DebugOverlay } from '@/ui/hud/DebugOverlay';
+import { InventoryWindow } from '@/ui/windows/Inventory';
+import { CharacterSheet } from '@/ui/windows/CharacterSheet';
+import { ContainerLoot } from '@/ui/windows/ContainerLoot';
 
 function Prompt() {
   const prompt = useUi((s) => s.prompt);
@@ -46,11 +52,21 @@ export function App() {
 
   return (
     <>
-      {gameMode === 'play' && top === null && <div className="vm-crosshair" />}
-      {gameMode === 'play' && top === null && <Prompt />}
+      {gameMode === 'play' && top === null && (
+        <>
+          <div className="vm-crosshair" />
+          <Prompt />
+        </>
+      )}
+      {gameMode === 'play' && <Hud />}
       {gameMode === 'menu' && top === null && <MainMenu />}
+      {gameMode === 'chargen' && top === null && <CharGen />}
       {top === 'pause' && <PauseMenu />}
       {top === 'settings' && <SettingsMenu />}
+      {top === 'saves' && <SaveLoadMenu />}
+      {top === 'inventory' && <InventoryWindow />}
+      {top === 'character' && <CharacterSheet />}
+      {top === 'container' && <ContainerLoot />}
       <Toasts />
       <Blackout />
       {import.meta.env.DEV && <DebugOverlay />}

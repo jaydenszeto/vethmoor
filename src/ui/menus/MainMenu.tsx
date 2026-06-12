@@ -3,11 +3,16 @@
  * One orchestrated entrance: kicker → title → rule → items, staggered.
  */
 
-import { gameApi, useUi } from '@/ui/store';
+import { useEffect } from 'react';
+import { gameApi, refreshSaves, useUi } from '@/ui/store';
 import { PixelHeading } from '@/ui/widgets/PixelHeading';
 
 export function MainMenu() {
   const hasSave = useUi((s) => s.hasSave);
+
+  useEffect(() => {
+    void refreshSaves();
+  }, []);
 
   return (
     <div className="vm-fill vm-fade-in">
@@ -76,6 +81,16 @@ export function MainMenu() {
             </button>
           </div>
           <div className="vm-rise" style={{ ['--i' as string]: 5 }}>
+            <button
+              type="button"
+              className="vm-btn"
+              disabled={!hasSave}
+              onClick={() => gameApi().openWindow('saves')}
+            >
+              Chronicles
+            </button>
+          </div>
+          <div className="vm-rise" style={{ ['--i' as string]: 6 }}>
             <button
               type="button"
               className="vm-btn"

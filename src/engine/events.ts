@@ -28,6 +28,22 @@ export interface EventMap {
   'screen:fade': { on: boolean };
   /** Crosshair interaction prompt (null clears). */
   'hud:prompt': { text: string | null };
+  /** Character sheet/inventory mutated (UI re-reads). */
+  'char:changed': Record<string, never>;
+  /** Container window contents (pushed on open + after takes). */
+  'container:open': { label: string; items: { id: string; n: number }[] };
+  /** Vital bars push (throttled ~10 Hz). */
+  'hud:stats': {
+    hp: number;
+    hpMax: number;
+    mp: number;
+    mpMax: number;
+    fat: number;
+    fatMax: number;
+    enc: number;
+    encMax: number;
+    levelReady: boolean;
+  };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

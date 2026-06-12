@@ -58,6 +58,13 @@ export class WorldManager {
   /** Set by Game so door interactions can move the player. */
   onPlayerPlace: ((x: number, y: number, z: number, yaw: number) => void) | null = null;
   onCellChanged: ((interior: BuiltCell | null) => void) | null = null;
+  /** Game opens the loot UI; falls back to a toast if unset. */
+  onContainerOpen: ((e: Entity) => void) | null = null;
+
+  /** Last exterior door position (for saves while inside). */
+  get returnPoint(): { x: number; z: number; yaw: number } {
+    return { x: this.exteriorReturn.x, z: this.exteriorReturn.z, yaw: this.exteriorReturn.yaw };
+  }
 
   constructor(private readonly chunks: ChunkManager) {
     this.sitesGroup.name = 'sites';
@@ -146,7 +153,8 @@ export class WorldManager {
       } else if (e.kind === 'container') {
         e.prompt ??= 'Weathered chest';
         e.onInteract = () => {
-          events.emit('toast', { text: 'Empty. (Loot arrives with P4.)', kind: 'info' });
+          if (this.onContainerOpen) this.onContainerOpen(e);
+          else events.emit('toast', { text: 'It will not open.', kind: 'info' });
         };
       } else if (e.kind === 'npc') {
         e.onInteract = () => {
@@ -226,7 +234,8 @@ export class WorldManager {
       } else if (spec.kind === 'container') {
         e.prompt = tag.startsWith('chest:boss') ? 'Heavy chest' : 'Chest';
         e.onInteract = () => {
-          events.emit('toast', { text: 'Empty. (Loot arrives with P4.)', kind: 'info' });
+          if (this.onContainerOpen) this.onContainerOpen(e);
+          else events.emit('toast', { text: 'It will not open.', kind: 'info' });
         };
       } else if (spec.kind === 'npc') {
         e.prompt = tag === 'npc:innkeep' ? 'Innkeeper' : tag === 'npc:trader' ? 'Trader' : tag === 'npc:priest' ? 'Priest' : 'Stranger';

@@ -50,14 +50,12 @@ const ACTION_KEYS: Record<Action, readonly string[]> = {
   sneak: ['KeyC'],
 };
 
-/** Window-toggle keys active during play with an empty stack. */
+/** Window-toggle keys active during play with an empty stack.
+ *  (Keys for not-yet-built windows are added with their phases.) */
 const TOGGLE_KEYS: Record<string, UiMode> = {
   Tab: 'inventory',
   KeyI: 'inventory',
-  KeyJ: 'journal',
-  KeyM: 'map',
-  KeyK: 'spellbook',
-  KeyT: 'rest',
+  KeyV: 'character',
 };
 
 class InputManager {

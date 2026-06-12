@@ -15,10 +15,8 @@ import {
 } from '@/engine/collision';
 import { EYE_HEIGHT, SEA_LEVEL } from '@/data/world';
 
-const WALK_SPEED = 4.3;
 const SPRINT_MULT = 1.65;
 const SNEAK_MULT = 0.45;
-const SWIM_SPEED = 3.1;
 
 const scratchMouse = { dx: 0, dy: 0 };
 const moveInput: MoveInput = { ax: 0, az: 0, ay: 0, jump: false };
@@ -48,6 +46,14 @@ export class Player {
   sneaking = false;
   /** True for the tick in which a footfall lands (audio hook). */
   stepped = false;
+
+  /** Movement parameters pushed each tick from the character sheet. */
+  walkSpeedBase = 4.3;
+  sprintAllowed = true;
+  jumpAllowed = true;
+  /** Telemetry for fatigue costs. */
+  sprinting = false;
+  jumped = false;
 
   spawnAt(x: number, z: number, yaw: number, q: CollisionQuery): void {
     this.body.x = x;
@@ -84,8 +90,11 @@ export class Player {
     fz /= len;
 
     const swimming = this.body.mode === 'swim';
-    let speed = swimming ? SWIM_SPEED : WALK_SPEED;
-    if (!swimming && input.held('sprint') && !this.sneaking) speed *= SPRINT_MULT;
+    let speed = swimming ? this.walkSpeedBase * 0.72 : this.walkSpeedBase;
+    const moving = fx !== 0 || fz !== 0;
+    this.sprinting =
+      !swimming && moving && input.held('sprint') && !this.sneaking && this.sprintAllowed;
+    if (this.sprinting) speed *= SPRINT_MULT;
     if (this.sneaking) speed *= SNEAK_MULT;
 
     const sin = Math.sin(this.yaw);
@@ -96,7 +105,8 @@ export class Player {
     moveInput.ay = swimming
       ? fz * Math.sin(this.pitch) * speed + (input.held('jump') ? 2.2 : 0)
       : 0;
-    moveInput.jump = input.wasPressed('jump');
+    moveInput.jump = input.wasPressed('jump') && this.jumpAllowed;
+    this.jumped = moveInput.jump && this.body.onGround && !swimming;
 
     this.prevX = this.body.x;
     this.prevY = this.body.y;
