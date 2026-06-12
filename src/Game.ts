@@ -1,8 +1,6 @@
 /**
- * Game orchestrator: owns the loop, renderer, scene graph and mode state.
- * P0 scope — menu backdrop (ember monolith among standing stones in dusk fog)
- * and a pointer-locked glide stub proving the input/render contracts. The
- * world systems replace the demo scene in P1.
+ * Game orchestrator: owns the loop, renderer, world systems and mode state.
+ * P1: streamed terrain, day/night atmosphere, ocean, first-person player.
  */
 
 import * as THREE from 'three';
@@ -10,42 +8,66 @@ import { config } from '@/engine/config';
 import { events, type GameMode } from '@/engine/events';
 import { input } from '@/engine/input';
 import { GameLoop } from '@/engine/loop';
-import { clamp } from '@/engine/math';
-import { Sfc32, seedOf } from '@/engine/rng';
+import { GameClock } from '@/engine/time';
+import { bakeTextures } from '@/gen/textures';
+import { Player } from '@/entities/player';
 import { GameRenderer, type RenderHeight } from '@/render/renderer';
+import { Sky, computeAtmosphere, makeAtmosphere } from '@/render/sky';
+import { BIOMES, BIOME_ORDER } from '@/data/biomes';
+import type { BiomeId } from '@/data/ids';
+import { CAMERA_FAR, NEW_GAME_HOUR, VOLCANO_X, VOLCANO_Z } from '@/data/world';
+import { ChunkManager } from '@/world/chunks';
+import { Streamer } from '@/world/streaming';
+import { biomeWeightsAt, biomeAt, worldHeight } from '@/world/terrain';
+import { terrainMaterial } from '@/world/terrainMesh';
+import { Ocean } from '@/world/water';
 
-const EYE_HEIGHT = 1.7;
+const MENU_HOUR = 18.15;
+const SPAWN = { x: 1825, z: 9745, yaw: -Math.PI * 0.38 };
 
-const scratchMouse = { dx: 0, dy: 0 };
+const biomeW: number[] = [0, 0, 0, 0, 0, 0];
 
 export class Game {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: GameRenderer;
   readonly loop: GameLoop;
+  readonly clock = new GameClock();
 
   mode: GameMode = 'boot';
 
-  private yaw = 0;
-  private pitch = 0;
-  private readonly pos = new THREE.Vector3(0, EYE_HEIGHT, 9);
-  private readonly prevPos = this.pos.clone();
-  private readonly vel = new THREE.Vector3();
+  private readonly streamer = new Streamer();
+  readonly chunks = new ChunkManager(this.streamer);
+  private sky!: Sky;
+  private ocean!: Ocean;
+  readonly player = new Player();
 
-  private menuTime = 0;
-  private monolith!: THREE.Mesh;
-  private emberLight!: THREE.PointLight;
+  private readonly atmo = makeAtmosphere();
+  private readonly fogColor = new THREE.Color(0x9aa49a);
+  private fogDensity = 0.003;
+  private readonly hemi = new THREE.HemisphereLight(0x46595f, 0x241f1b, 1);
+  private readonly sun = new THREE.DirectionalLight(0xffffff, 1);
+
+  private timeS = 0;
+  private menuDrift = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new GameRenderer(canvas);
-    this.camera = new THREE.PerspectiveCamera(71, this.renderer.aspect, 0.08, 1200);
+    this.camera = new THREE.PerspectiveCamera(71, this.renderer.aspect, 0.08, CAMERA_FAR);
     input.attach(canvas);
-    this.buildDemoScene();
     this.loop = new GameLoop(this.sim, this.renderFrame);
   }
 
-  /** Async boot: later phases bake textures here behind the loading screen. */
   async boot(): Promise<void> {
+    bakeTextures();
+    this.sky = new Sky();
+    this.ocean = new Ocean();
+    this.scene.add(this.sky.mesh, this.ocean.mesh, this.chunks.group, this.hemi, this.sun);
+    this.scene.fog = new THREE.FogExp2(this.fogColor, this.fogDensity);
+
+    // Warm the menu vista before first paint.
+    const cam = this.menuCamPos(0);
+    this.warmup(cam.x, cam.z, 900);
     this.setMode('menu');
     this.loop.start();
   }
@@ -58,10 +80,9 @@ export class Game {
   }
 
   newGame(): void {
-    this.pos.set(0, EYE_HEIGHT, 9);
-    this.prevPos.copy(this.pos);
-    this.yaw = 0;
-    this.pitch = 0;
+    this.clock.set(1, NEW_GAME_HOUR * 60);
+    this.player.spawnAt(SPAWN.x, SPAWN.z, SPAWN.yaw, this.chunks);
+    this.warmup(SPAWN.x, SPAWN.z, 1500);
     this.setMode('play');
   }
 
@@ -74,101 +95,38 @@ export class Game {
     this.renderer.setRenderHeight(h);
   }
 
-  // ----- P0 demo scene ------------------------------------------------------
-
-  private buildDemoScene(): void {
-    const fogColor = new THREE.Color(0x131a1c);
-    this.scene.fog = new THREE.FogExp2(fogColor, 0.026);
-    this.scene.background = fogColor;
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(400, 400),
-      new THREE.MeshLambertMaterial({ color: 0x2c352f }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    this.scene.add(ground);
-
-    // Ember-lit monolith — placeholder hero object proving lighting + fog.
-    this.monolith = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 3.4, 1.4),
-      new THREE.MeshLambertMaterial({
-        color: 0x4d4844,
-        emissive: new THREE.Color(0xff7b29),
-        emissiveIntensity: 0.12,
-      }),
-    );
-    this.monolith.position.set(0, 1.7, 0);
-    this.scene.add(this.monolith);
-
-    // Ring of standing stones, deterministically placed.
-    const rng = new Sfc32(seedOf('demo-stones'));
-    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x3b403c });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + rng.range(-0.1, 0.1);
-      const r = rng.range(7, 26);
-      const h = rng.range(1.2, 3.2);
-      const stone = new THREE.Mesh(new THREE.BoxGeometry(rng.range(0.5, 1.1), h, rng.range(0.4, 0.9)), stoneMat);
-      stone.position.set(Math.cos(a) * r, h / 2 - 0.05, Math.sin(a) * r);
-      stone.rotation.y = rng.range(0, Math.PI);
-      stone.rotation.z = rng.range(-0.06, 0.06);
-      this.scene.add(stone);
+  /** Synchronously build nearby chunks (blocking, behind fades/loading). */
+  private warmup(x: number, z: number, maxMs: number): void {
+    const t0 = performance.now();
+    this.chunks.update(x, z, this.timeS);
+    while (performance.now() - t0 < maxMs) {
+      if (!this.streamer.pump()) break;
     }
-
-    const hemi = new THREE.HemisphereLight(0x46595f, 0x241f1b, 0.85);
-    this.scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xff9a55, 0.75);
-    sun.position.set(-40, 14, -28);
-    this.scene.add(sun);
-    this.emberLight = new THREE.PointLight(0xff8030, 14, 22, 2);
-    this.emberLight.position.set(0, 2.4, 0);
-    this.scene.add(this.emberLight);
   }
 
-  // ----- simulation ---------------------------------------------------------
+  // ----- simulation ----------------------------------------------------------
 
   private sim = (dt: number): void => {
-    this.menuTime += dt;
-    if (this.mode === 'play' && !input.uiOpen) {
-      this.simPlay(dt);
+    this.timeS += dt;
+    if (this.mode === 'play') {
+      if (!input.uiOpen) {
+        this.clock.advance(dt);
+        this.player.update(dt, this.chunks);
+      }
     }
-    // Ember pulse runs in every mode (visible behind menu).
-    const flicker =
-      0.12 + 0.05 * Math.sin(this.menuTime * 2.1) + 0.02 * Math.sin(this.menuTime * 9.7);
-    (this.monolith.material as THREE.MeshLambertMaterial).emissiveIntensity = flicker;
-    this.emberLight.intensity = 12 + 22 * flicker;
     input.postSimClear();
   };
 
-  private simPlay(dt: number): void {
-    input.consumeMouse(scratchMouse);
-    const sens = config.mouseSens;
-    const ySign = config.invertY ? -1 : 1;
-    this.yaw -= scratchMouse.dx * sens;
-    this.pitch = clamp(this.pitch - scratchMouse.dy * sens * ySign, -1.55, 1.55);
+  // ----- render --------------------------------------------------------------
 
-    const speed = input.held('sprint') ? 9 : 4.5;
-    let fx = 0;
-    let fz = 0;
-    if (input.held('forward')) fz += 1;
-    if (input.held('back')) fz -= 1;
-    if (input.held('left')) fx -= 1;
-    if (input.held('right')) fx += 1;
-    const len = Math.hypot(fx, fz) || 1;
-    fx /= len;
-    fz /= len;
+  private menuCamTarget = new THREE.Vector3();
 
-    const sin = Math.sin(this.yaw);
-    const cos = Math.cos(this.yaw);
-    this.vel.x = (fz * -sin + fx * cos) * speed;
-    this.vel.z = (fz * -cos + fx * -sin) * speed;
-
-    this.prevPos.copy(this.pos);
-    this.pos.x += this.vel.x * dt;
-    this.pos.z += this.vel.z * dt;
-    this.pos.y = EYE_HEIGHT;
+  private menuCamPos(t: number): { x: number; y: number; z: number } {
+    const x = 2380 + Math.sin(t * 0.021) * 150;
+    const z = 9120 + Math.cos(t * 0.016) * 190;
+    const y = Math.max(worldHeight(x, z), 4) + 30;
+    return { x, y, z };
   }
-
-  // ----- render -------------------------------------------------------------
 
   private renderFrame = (alpha: number, _frameDt: number): void => {
     if (this.camera.aspect !== this.renderer.aspect) {
@@ -176,18 +134,110 @@ export class Game {
       this.camera.updateProjectionMatrix();
     }
 
-    if (this.mode === 'menu' || this.mode === 'boot') {
-      const t = this.menuTime * 0.07;
-      const r = 11.5;
-      this.camera.position.set(Math.cos(t) * r, 2.3 + Math.sin(this.menuTime * 0.18) * 0.4, Math.sin(t) * r);
-      this.camera.lookAt(0, 1.5, 0);
-    } else {
-      this.camera.position.lerpVectors(this.prevPos, this.pos, alpha);
+    // Camera placement.
+    let camX: number;
+    let camZ: number;
+    if (this.mode === 'play' || this.mode === 'dead') {
+      camX = this.player.eyeX(alpha);
+      camZ = this.player.eyeZ(alpha);
+      this.camera.position.set(camX, this.player.eyeY(alpha), camZ);
       this.camera.rotation.set(0, 0, 0);
-      this.camera.rotateY(this.yaw);
-      this.camera.rotateX(this.pitch);
+      this.camera.rotateY(this.player.yaw);
+      this.camera.rotateX(this.player.pitch);
+    } else {
+      this.menuDrift += 1 / 144;
+      const p = this.menuCamPos(this.menuDrift);
+      camX = p.x;
+      camZ = p.z;
+      this.camera.position.set(p.x, p.y, p.z);
+      this.menuCamTarget.set(VOLCANO_X, 430, VOLCANO_Z);
+      this.camera.lookAt(this.menuCamTarget);
     }
+
+    // Atmosphere drives everything.
+    const hour = this.mode === 'play' || this.mode === 'dead' ? this.clock.hour : MENU_HOUR;
+    computeAtmosphere(hour, this.atmo);
+    this.updateAtmosphereUniforms(camX, camZ);
+
+    // Streaming around the camera anchor.
+    this.chunks.update(camX, camZ, this.timeS);
+    this.streamer.pump();
 
     this.renderer.renderFrame(this.scene, this.camera);
   };
+
+  private updateAtmosphereUniforms(camX: number, camZ: number): void {
+    const a = this.atmo;
+
+    // Per-biome fog blended at the camera.
+    biomeWeightsAt(camX, camZ, biomeW);
+    let density = 0;
+    let tintR = 0;
+    let tintG = 0;
+    let tintB = 0;
+    for (let i = 0; i < 6; i++) {
+      const def = BIOMES[BIOME_ORDER[i] as BiomeId];
+      const w = biomeW[i] as number;
+      density += w * def.fogDensity;
+      tintR += w * def.fogTint[0];
+      tintG += w * def.fogTint[1];
+      tintB += w * def.fogTint[2];
+    }
+    this.fogDensity = density * config.fogMult;
+    this.fogColor.copy(a.horizon);
+    this.fogColor.r *= tintR;
+    this.fogColor.g *= tintG;
+    this.fogColor.b *= tintB;
+
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.copy(this.fogColor);
+    fog.density = this.fogDensity;
+    this.scene.background = this.fogColor;
+
+    // Lights for Lambert-lit props/entities.
+    this.hemi.color.copy(a.hemiSky);
+    this.hemi.groundColor.copy(a.hemiGround);
+    this.hemi.intensity = 1;
+    this.sun.color.copy(a.sunColor);
+    this.sun.intensity = a.sunI * 1.1;
+    this.sun.position.set(a.sunDir.x * 100, a.sunDir.y * 100, a.sunDir.z * 100);
+
+    // Terrain shader.
+    const tu = terrainMaterial().uniforms;
+    (tu.uSunDir!.value as THREE.Vector3).copy(a.sunDir);
+    (tu.uSunColor!.value as THREE.Color).copy(a.sunColor).multiplyScalar(a.sunI);
+    (tu.uHemiSky!.value as THREE.Color).copy(a.hemiSky);
+    (tu.uHemiGround!.value as THREE.Color).copy(a.hemiGround);
+    (tu.uFogColor!.value as THREE.Color).copy(this.fogColor);
+    tu.uFogDensity!.value = this.fogDensity;
+
+    this.sky.update(this.camera.position, a, this.fogColor, this.timeS);
+    this.ocean.update(camX, camZ, this.timeS, a.sunColor, a.sunI, this.fogColor, this.fogDensity);
+  }
+
+  // ----- dev helpers -----------------------------------------------------------
+
+  tp(x: number, z: number): void {
+    this.player.spawnAt(x, z, this.player.yaw, this.chunks);
+    this.warmup(x, z, 2000);
+  }
+
+  setHour(h: number): void {
+    this.clock.set(this.clock.day, ((h % 24) + 24) % 24 * 60);
+  }
+
+  stats(): Record<string, unknown> {
+    const b = this.player.body;
+    return {
+      fps: Math.round(this.loop.fps),
+      draws: this.renderer.drawCalls,
+      tris: this.renderer.triangles,
+      chunks: this.chunks.loadedCount,
+      queued: this.streamer.pending,
+      pos: `${b.x.toFixed(0)}, ${b.y.toFixed(1)}, ${b.z.toFixed(0)}`,
+      mode: b.mode,
+      hour: this.clock.hour.toFixed(2),
+      biome: biomeAt(b.x, b.z),
+    };
+  }
 }

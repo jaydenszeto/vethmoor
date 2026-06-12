@@ -9,6 +9,7 @@ import { MainMenu } from '@/ui/menus/MainMenu';
 import { PauseMenu } from '@/ui/menus/PauseMenu';
 import { SettingsMenu } from '@/ui/menus/SettingsMenu';
 import { Toasts } from '@/ui/hud/Toasts';
+import { DebugOverlay } from '@/ui/hud/DebugOverlay';
 
 export function App() {
   const gameMode = useUi((s) => s.gameMode);
@@ -22,6 +23,7 @@ export function App() {
       {top === 'pause' && <PauseMenu />}
       {top === 'settings' && <SettingsMenu />}
       <Toasts />
+      {import.meta.env.DEV && <DebugOverlay />}
     </>
   );
 }

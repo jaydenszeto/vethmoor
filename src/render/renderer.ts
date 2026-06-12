@@ -68,20 +68,26 @@ export class GameRenderer {
     return this.rtWidth / this.rtHeight;
   }
 
+  /** Scene-pass stats (captured before the blit overwrites renderer.info). */
+  private sceneDrawCalls = 0;
+  private sceneTriangles = 0;
+
   /** Render one frame: scene → low-res RT → dithered blit to canvas. */
   renderFrame(scene: THREE.Scene, camera: THREE.Camera): void {
     this.gl.setRenderTarget(this.rt);
     this.gl.render(scene, camera);
+    this.sceneDrawCalls = this.gl.info.render.calls;
+    this.sceneTriangles = this.gl.info.render.triangles;
     this.gl.setRenderTarget(null);
     this.blit.setSource(this.rt.texture, this.rtWidth, this.rtHeight);
     this.blit.render(this.gl);
   }
 
   get drawCalls(): number {
-    return this.gl.info.render.calls;
+    return this.sceneDrawCalls;
   }
 
   get triangles(): number {
-    return this.gl.info.render.triangles;
+    return this.sceneTriangles;
   }
 }

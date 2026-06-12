@@ -35,7 +35,8 @@ void game.boot();
 if (import.meta.env.DEV) {
   (window as unknown as { dbg: object }).dbg = {
     game,
-    fps: () => game.loop.fps,
-    draws: () => game.renderer.drawCalls,
+    stats: () => game.stats(),
+    tp: (x: number, z: number) => game.tp(x, z),
+    setHour: (h: number) => game.setHour(h),
   };
 }
