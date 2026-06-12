@@ -132,23 +132,37 @@ export class WeatherSystem {
     scene.add(this.rain.points, this.ash.points);
   }
 
-  /** Dev/test: force a weather kind immediately. */
+  /** Post-ending climate: 'sever' ends the storms; 'rebind' deepens the ash. */
+  bias: 'sever' | 'rebind' | null = null;
+
+  /** Dev/test: force a weather kind immediately (holds for the current slot). */
   force(kind: WeatherKind): void {
     this.targetKind = kind;
-    this.lastSlot = -2; // pin until next natural slot roll
+    this.lastSlot = -2; // skip the next roll, then nature resumes
   }
 
   /** Roll the schedule (3-game-hour slots, deterministic per day+slot). */
   private rollWeather(day: number, hour: number, vx: number, vz: number): void {
     const slot = day * 8 + Math.floor(hour / 3);
-    if (slot === this.lastSlot || this.lastSlot === -2) return;
+    if (slot === this.lastSlot) return;
+    if (this.lastSlot === -2) {
+      this.lastSlot = slot; // forced weather owns this slot only
+      return;
+    }
     this.lastSlot = slot;
     const rng = new Sfc32(seedOf('weather', slot));
     const v = volcanism(vx, vz);
-    // Weight table shifts with volcanism.
+    // Weight table shifts with volcanism — and with what you did at the throne.
     const roll = rng.float();
     let next: WeatherKind;
-    if (v > 0.3) {
+    if (this.bias === 'sever') {
+      // The dream is cut; the sky forgets how to rage.
+      next = roll < 0.18 ? 'overcast' : 'clear';
+    } else if (this.bias === 'rebind') {
+      // The sleeper dreams deeper; the ash rides every wind.
+      if (v > 0.15) next = roll < 0.45 ? 'ashstorm' : roll < 0.75 ? 'overcast' : 'clear';
+      else next = roll < 0.2 ? 'rain' : roll < 0.55 ? 'overcast' : 'clear';
+    } else if (v > 0.3) {
       next = roll < 0.34 ? 'ashstorm' : roll < 0.55 ? 'overcast' : roll < 0.62 ? 'rain' : 'clear';
     } else {
       next = roll < 0.16 ? 'rain' : roll < 0.42 ? 'overcast' : 'clear';

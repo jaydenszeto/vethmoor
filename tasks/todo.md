@@ -10,7 +10,7 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - [completed] P5 — Combat, magic, AI, leveling (viewmodel, 8 enemies, 14 spells, use-based skills)
 - [completed] P6 — Dialogue, barter, schedules, travel, alchemy (topic hyperlinks, merchants, dune-striders, books, rest/level-up rite)
 - [completed] P7 — Quests, factions, journal, maps (main quest 10–70 + both endings, 3 factions ×4 authored quests + radiant duties, journal/map windows, Conclave portal)
-- [pending] P8 — Polish, balance, music, ship (generative soundtrack, title flourish, perf audit, README, smoke flow)
+- [completed] P8 — Polish, balance, music, ship (generative soundtrack with 5 crossfading states, post-ending climate bias persisted in saves, perf audit 104/88/62 draws vs 280 budget, README, scripted smoke flow with screenshots)
 
 ## hero moments (budgeted, restraint elsewhere)
 
@@ -32,3 +32,5 @@ Build phases per the approved plan (each ends runnable + verified + committed).
 - P7: `dbg.kill` set actor state to dead but skipped `onActorDeath`, so quest kill-triggers silently never fired under verification. Root cause: the real kill paths (combat/projectiles) call the death callback explicitly after `takeDamage`; any new damage source must do the same.
 - P7: CDP page-level `import('/src/...')` returns a DIFFERENT module instance than the app's `?t=`-stamped HMR modules — state read through it is a phantom. Verify only through `window.dbg`/the UI.
 - P7: starting a New Game while the previous session sat inside an interior left the world in interior mode under the fresh character — `finishChargen` now exits the cell first (loadSlot already did).
+- P8: music state set before the AudioContext unlocks would never apply its gain ramps (setState early-returned but recorded the state). Root cause: conflating "requested state" with "applied state"; fix: separate `applied` tracker re-checked every update() so a late unlock catches up.
+- P8: `weather.force` pinned the FSM forever (-2 sentinel never cleared) — fine for a dev helper, wrong once endings drive climate. Fix: forced weather owns only the current 3-hour slot; the post-ending `bias` reshapes the natural roll table instead.

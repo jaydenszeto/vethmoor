@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { installAudioUnlock } from '@/audio/engine';
 import { Ambience } from '@/audio/ambience';
+import { music, type MusicState } from '@/audio/music';
 import {
   arrowImpact,
   bowRelease,
@@ -443,6 +444,7 @@ export class Game {
     restoreQuests(undefined);
     restoreFactions(undefined);
     this.world.discovered.clear();
+    this.weather.bias = null;
     addItem(this.character, itemId('sealed-writ'), 1);
     this.clock.set(1, NEW_GAME_HOUR * 60);
     this.advanceQuest('main', 10);
@@ -533,6 +535,8 @@ export class Game {
     this.clock.set(save.clock.day, save.clock.minOfDay);
     // Pre-P7 saves: the main quest starts where the player already stands.
     if (questStage('main') === 0) this.advanceQuest('main', 10);
+    // The throne's verdict outlives the session.
+    this.weather.bias = questFlag('ending:sever') ? 'sever' : questFlag('ending:rebind') ? 'rebind' : null;
     this.world.applySchedules(Math.floor(this.clock.hour));
     if (this.world.isInterior) await this.world.exitInterior();
 
@@ -744,7 +748,8 @@ export class Game {
     if (questStage('main') < 65 || questStage('main') >= 70) return;
     setQuestFlag(`ending:${kind}`);
     this.advanceQuest('main', 70);
-    // The sky carries the verdict home.
+    // The sky carries the verdict home — now, and on every load after.
+    this.weather.bias = kind;
     this.setWeather(kind === 'sever' ? 'clear' : 'ashstorm');
     events.emit('ending:open', { phase: kind });
     void this.saveSlot('auto', 'Autosave');
@@ -1265,6 +1270,23 @@ export class Game {
 
   // ----- render --------------------------------------------------------------
 
+  /** Pick the soundtrack state for this frame. */
+  private musicStateNow(hour: number): MusicState {
+    if (this.mode === 'menu' || this.mode === 'chargen') return 'menu';
+    if (this.mode !== 'play' && this.mode !== 'dead') return 'off';
+    const b = this.player.body;
+    for (const a of this.spawns.actors) {
+      if (!a.alive || a.friendly) continue;
+      if ((a.state === 'chase' || a.state === 'attack') && Math.hypot(a.body.x - b.x, a.body.z - b.z) < 45) {
+        return 'combat';
+      }
+    }
+    if (this.world.isInterior) {
+      return this.world.interior?.theme === 'town' ? 'explore' : 'dungeon';
+    }
+    return hour < 6.5 || hour > 19.5 ? 'night' : 'explore';
+  }
+
   private menuCamTarget = new THREE.Vector3();
 
   private menuCamPos(t: number): { x: number; y: number; z: number } {
@@ -1323,6 +1345,10 @@ export class Game {
     }
 
     const hour = this.mode === 'play' || this.mode === 'dead' ? this.clock.hour : MENU_HOUR;
+
+    // Soundtrack state follows the moment.
+    music.setState(this.musicStateNow(hour));
+    music.update();
 
     if (this.world.isInterior) {
       // Interior gloom: short dark fog, lights carried by the cell.
