@@ -56,3 +56,51 @@ export function uiClick(): void {
 export function uiHover(): void {
   tone({ freq: 1300, dur: 0.02, gain: 0.03, type: 'square' });
 }
+
+// ----- combat ---------------------------------------------------------------
+
+export function swingWhoosh(): void {
+  noiseBurst({ filter: 'bandpass', freq: 600 + jitter(100), freqEnd: 1800, q: 1.6, dur: 0.16, gain: 0.14, attack: 0.02 });
+}
+
+export function meleeHit(): void {
+  noiseBurst({ filter: 'lowpass', freq: 900, freqEnd: 250, dur: 0.12, gain: 0.3 });
+  tone({ freq: 180 + jitter(40), freqEnd: 90, dur: 0.09, gain: 0.16 });
+}
+
+export function bowRelease(): void {
+  tone({ freq: 320, freqEnd: 110, dur: 0.07, gain: 0.18, type: 'triangle' });
+  noiseBurst({ filter: 'highpass', freq: 1400, dur: 0.08, gain: 0.1 });
+}
+
+export function castWhoosh(): void {
+  noiseBurst({ filter: 'bandpass', freq: 700, freqEnd: 2600, q: 2.5, dur: 0.28, gain: 0.16, attack: 0.04 });
+  tone({ freq: 520 + jitter(60), freqEnd: 1050, dur: 0.22, gain: 0.08, type: 'sine' });
+}
+
+export function castDud(): void {
+  tone({ freq: 220, freqEnd: 140, dur: 0.14, gain: 0.1, type: 'square' });
+}
+
+export function hurtGrunt(): void {
+  tone({ freq: 190 + jitter(35), freqEnd: 120, dur: 0.13, gain: 0.16, type: 'sawtooth' });
+  noiseBurst({ filter: 'lowpass', freq: 500, dur: 0.1, gain: 0.12 });
+}
+
+export function enemyGrowl(baseFreq: number): void {
+  tone({ freq: baseFreq * (1 + jitter(0.15)), freqEnd: baseFreq * 0.7, dur: 0.22, gain: 0.12, type: 'sawtooth' });
+}
+
+export function enemyDie(baseFreq: number): void {
+  tone({ freq: baseFreq, freqEnd: baseFreq * 0.4, dur: 0.5, gain: 0.15, type: 'sawtooth' });
+  noiseBurst({ filter: 'lowpass', freq: 420, freqEnd: 120, dur: 0.4, gain: 0.14 });
+}
+
+export function arrowImpact(): void {
+  noiseBurst({ filter: 'bandpass', freq: 1500, q: 3, dur: 0.05, gain: 0.16 });
+}
+
+export function spellImpact(): void {
+  noiseBurst({ filter: 'lowpass', freq: 1200, freqEnd: 300, dur: 0.2, gain: 0.22 });
+  tone({ freq: 800, freqEnd: 200, dur: 0.16, gain: 0.1 });
+}

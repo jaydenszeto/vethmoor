@@ -56,6 +56,7 @@ const TOGGLE_KEYS: Record<string, UiMode> = {
   Tab: 'inventory',
   KeyI: 'inventory',
   KeyV: 'character',
+  KeyK: 'spellbook',
 };
 
 class InputManager {
@@ -69,6 +70,8 @@ class InputManager {
 
   locked = false;
   private wantLock = false;
+  /** Dev/test: disable pointer-lock acquisition + pause-on-loss (CDP runs). */
+  headless = false;
 
   /** Accumulated pointer-lock mouse deltas, consumed by the camera each tick. */
   mouseDx = 0;
@@ -156,6 +159,7 @@ class InputManager {
   // ----- pointer lock -------------------------------------------------------
 
   private requestLock(): void {
+    if (this.headless) return;
     this.wantLock = true;
     if (this.locked || !this.canvas) return;
     const p = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
@@ -164,6 +168,7 @@ class InputManager {
   }
 
   private onLockChange = (): void => {
+    if (this.headless) return;
     this.locked = document.pointerLockElement === this.canvas;
     events.emit('input:lock', { locked: this.locked });
     if (!this.locked) {
@@ -246,7 +251,7 @@ class InputManager {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
-    if (!this.locked) return;
+    if (!this.locked && !this.headless) return;
     if (e.button === 0) {
       this.attackHeld = true;
       this.attackPressed = true;

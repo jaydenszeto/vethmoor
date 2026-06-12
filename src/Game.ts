@@ -6,7 +6,20 @@
 import * as THREE from 'three';
 import { installAudioUnlock } from '@/audio/engine';
 import { Ambience } from '@/audio/ambience';
-import { footstep, landThump, type Surface } from '@/audio/sfx';
+import {
+  arrowImpact,
+  bowRelease,
+  castDud,
+  castWhoosh,
+  enemyDie,
+  footstep,
+  hurtGrunt,
+  landThump,
+  meleeHit,
+  spellImpact,
+  swingWhoosh,
+  type Surface,
+} from '@/audio/sfx';
 import { config } from '@/engine/config';
 import { events, type GameMode } from '@/engine/events';
 import { input } from '@/engine/input';
@@ -55,6 +68,16 @@ import {
 import { getWorldSeedStr } from '@/engine/rng';
 import type { Culture } from '@/gen/names';
 import type { Entity } from '@/entities/entity';
+import { PlayerCombat, applyPlayerDamage } from '@/systems/combat';
+import { Effects } from '@/systems/magic';
+import { Projectiles } from '@/systems/projectiles';
+import { SpawnManager } from '@/systems/spawns';
+import type { ActorContext, EnemyActor } from '@/entities/actor';
+import { enemyId, type SpellId } from '@/data/ids';
+import { ViewModel } from '@/render/viewmodel';
+import { BlobShadows } from '@/render/blobShadow';
+import { itemDef } from '@/data/items';
+import { TOWNS } from '@/data/towns';
 
 const MENU_HOUR = 18.15;
 const SPAWN = { x: 1825, z: 9745, yaw: -Math.PI * 0.38 };
@@ -94,6 +117,18 @@ export class Game {
   private openContainer: Entity | null = null;
   private hudTick = 0;
   private restoring = false;
+
+  // Combat stack.
+  readonly combat = new PlayerCombat();
+  readonly effects = new Effects();
+  readonly projectiles = new Projectiles();
+  readonly spawns = new SpawnManager();
+  private viewModel!: ViewModel;
+  private blobShadows!: BlobShadows;
+  private casterLight = new THREE.PointLight(0xffd9a0, 0, 16, 1.6);
+  private shakeT = 0;
+  private deadT = 0;
+  private actorCtx!: ActorContext;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new GameRenderer(canvas);
@@ -139,6 +174,9 @@ export class Game {
       this.ocean.mesh.visible = !inside;
       this.interiorAmbient.visible = inside;
       if (inside && cell) this.interiorAmbient.color.setHex(cell.ambient).multiplyScalar(2.4);
+      // Actors don't cross cell boundaries.
+      this.spawns.clearAll();
+      if (cell) this.spawns.populateCell(cell, this.world.query);
       // Autosave on every cell transition (the Morrowind safety net).
       if (!this.restoring && this.character && this.mode === 'play') {
         void this.saveSlot('auto', 'Autosave');
@@ -157,7 +195,46 @@ export class Game {
       if (this.mode !== 'play') return;
       if (slot === -1) void this.saveSlot('quick', 'Quicksave');
       else if (slot === -2) void this.loadSlot('quick');
+      else if (slot >= 1 && slot <= 8 && this.character) {
+        const id = this.character.hotkeys[slot - 1];
+        if (id) {
+          this.combat.readySpell(id as SpellId);
+          events.emit('toast', { text: `Readied: ${id}`, kind: 'info' });
+        }
+      }
     });
+
+    events.on('summon:request', ({ duration }) => {
+      const b = this.player.body;
+      const a = this.spawns.spawn(
+        enemyId('skeleton-warden'),
+        b.x + Math.sin(this.player.yaw) * -2,
+        b.z + Math.cos(this.player.yaw) * -2,
+        this.world.query,
+        `summon:${Math.floor(this.timeS * 10)}`,
+        true,
+      );
+      a.ttl = duration;
+    });
+
+    this.viewModel = new ViewModel(this.camera);
+    this.blobShadows = new BlobShadows();
+    this.scene.add(this.camera, this.projectiles.group, this.spawns.group, this.blobShadows.group, this.casterLight);
+
+    this.actorCtx = {
+      q: this.world.query,
+      playerX: 0,
+      playerY: 0,
+      playerZ: 0,
+      stealthFactor: 1,
+      hurtPlayer: (dmg) => this.hurtPlayer(dmg),
+      fireBolt: (x, y, z, tx, ty, tz, dmg) => {
+        this.projectiles.fire('bolt', true, x, y, z, tx - x, ty - y, tz - z, 16, dmg, 0, 0xff7030);
+      },
+      nearestEnemy: (x, z, range) => this.spawns.nearestEnemy(x, z, range),
+      onDeath: (a) => this.onActorDeath(a),
+      timeS: 0,
+    };
 
     // Warm the menu vista before first paint.
     const cam = this.menuCamPos(0);
@@ -226,7 +303,7 @@ export class Game {
         character: JSON.parse(JSON.stringify(c)) as Character,
       },
       containers: serializeContainers(),
-      ext: {},
+      ext: { killed: this.spawns.serialize() },
     };
   }
 
@@ -246,6 +323,9 @@ export class Game {
     this.character = save.player.character;
     recalcDerived(this.character);
     restoreContainers(save.containers);
+    this.spawns.restore((save.ext.killed as string[] | undefined) ?? []);
+    this.effects.clear();
+    this.combat.readySpell(null);
     this.clock.set(save.clock.day, save.clock.minOfDay);
     if (this.world.isInterior) await this.world.exitInterior();
 
@@ -329,6 +409,63 @@ export class Game {
             this.hudTick = 0;
             this.pushHudStats();
           }
+
+          // ----- combat stack -----
+          this.effects.tick(dt);
+          // Skyward levitation.
+          if (this.effects.skyward && b.mode === 'walk') b.mode = 'levitate';
+          else if (!this.effects.skyward && b.mode === 'levitate') b.mode = 'walk';
+
+          this.combat.update(dt, {
+            player: this.player,
+            c,
+            actors: this.spawns.actors,
+            projectiles: this.projectiles,
+            effects: this.effects,
+            isExterior: !this.world.isInterior,
+            onKill: (a) => this.onActorDeath(a),
+            playSfx: (kind) => {
+              if (kind === 'whoosh') swingWhoosh();
+              else if (kind === 'hit') meleeHit();
+              else if (kind === 'bow') bowRelease();
+              else if (kind === 'cast') castWhoosh();
+              else castDud();
+            },
+            teleport: (x, z) => this.tp(x, z),
+          });
+
+          // Actors.
+          const ctx = this.actorCtx;
+          ctx.playerX = b.x;
+          ctx.playerY = b.y;
+          ctx.playerZ = b.z;
+          ctx.timeS = this.timeS;
+          const sneakBase = this.player.sneaking ? Math.max(0.3, 0.55 - c.skills.sneak * 0.002) : 1;
+          ctx.stealthFactor = sneakBase * this.effects.stealthMult * (this.atmo.nightAmt > 0.5 ? 0.75 : 1);
+          for (const a of this.spawns.actors) a.update(dt, ctx);
+          this.spawns.cull(b.x, b.z, !this.world.isInterior);
+          if (!this.world.isInterior) {
+            this.spawns.updateExterior(dt, b.x, b.z, this.world.query, this.clock.day);
+          }
+
+          // Projectiles.
+          this.projectiles.tick(dt, {
+            q: this.world.query,
+            actors: this.spawns.actors,
+            playerX: b.x,
+            playerY: b.y,
+            playerZ: b.z,
+            hurtPlayer: (dmg) => this.hurtPlayer(dmg),
+            hurtActor: (a, dmg, fx, fz) => {
+              a.takeDamage(dmg, fx, fz);
+              events.emit('hud:target', { name: a.def.name, frac: Math.max(0, a.hp / a.def.hp) });
+              if (!a.alive) this.onActorDeath(a);
+            },
+            impact: (_x, _y, _z, kind) => (kind === 'arrow' ? arrowImpact() : spellImpact()),
+          });
+
+          // Death.
+          if (c.hp <= 0 && this.mode === 'play') this.die();
         }
 
         updateInteract(this.player, this.world);
@@ -340,9 +477,65 @@ export class Game {
         }
         if (b.landImpact > 7) landThump(Math.min(1, (b.landImpact - 7) / 14));
       }
+    } else if (this.mode === 'dead') {
+      this.deadT += dt;
+      if (this.deadT > 3.2) this.respawn();
     }
     input.postSimClear();
   };
+
+  // ----- combat callbacks ---------------------------------------------------------
+
+  private hurtPlayer(raw: number): void {
+    const c = this.character;
+    if (!c || this.mode !== 'play') return;
+    const died = applyPlayerDamage(c, this.effects, raw, c.equipment.shield !== null);
+    hurtGrunt();
+    this.shakeT = 0.3;
+    this.pushHudStats();
+    if (died) this.die();
+  }
+
+  private onActorDeath(a: EnemyActor): void {
+    enemyDie(a.def.voice);
+    this.spawns.onDeath(a, (ent) => {
+      ent.onInteract = () => this.world.onContainerOpen?.(ent);
+      this.world.dynamicEntities.push(ent);
+    });
+    events.emit('hud:target', { name: null, frac: 0 });
+  }
+
+  private die(): void {
+    this.deadT = 0;
+    this.setMode('dead');
+    events.emit('toast', { text: 'The March takes another.', kind: 'warn' });
+  }
+
+  private respawn(): void {
+    const c = this.character;
+    if (!c) return;
+    // Nearest town's temple takes you in.
+    const b = this.player.body;
+    let best = TOWNS[0]!;
+    let bestD = Infinity;
+    for (const t of TOWNS) {
+      const d = Math.hypot(b.x - t.pos[0], b.z - t.pos[1]);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    c.hp = Math.round(c.hpMax * 0.5);
+    c.fat = Math.round(c.fatMax * 0.25);
+    c.mp = Math.round(c.mpMax * 0.5);
+    if (this.world.isInterior) void this.world.exitInterior();
+    this.player.spawnAt(best.pos[0] + 6, best.pos[1] + 6, 0, this.world.query);
+    this.warmup(best.pos[0], best.pos[1], 1200);
+    this.world.update(best.pos[0], best.pos[1]);
+    this.setMode('play');
+    this.pushHudStats();
+    events.emit('toast', { text: `You wake at the temple in ${best.name}.`, kind: 'quest' });
+  }
 
   pushHudStats(): void {
     const c = this.character;
@@ -437,10 +630,32 @@ export class Game {
     if (this.mode === 'play' || this.mode === 'dead') {
       camX = this.player.eyeX(alpha);
       camZ = this.player.eyeZ(alpha);
-      this.camera.position.set(camX, this.player.eyeY(alpha), camZ);
+      let eyeY = this.player.eyeY(alpha);
+      // Hit shake + death slump.
+      this.shakeT = Math.max(0, this.shakeT - 1 / 144);
+      if (this.shakeT > 0) {
+        camX += Math.sin(this.timeS * 70) * 0.04 * this.shakeT;
+        eyeY += Math.cos(this.timeS * 90) * 0.03 * this.shakeT;
+      }
+      if (this.mode === 'dead') {
+        eyeY = Math.max(this.player.body.y + 0.4, eyeY - this.deadT * 0.6);
+      }
+      this.camera.position.set(camX, eyeY, camZ);
       this.camera.rotation.set(0, 0, 0);
       this.camera.rotateY(this.player.yaw);
       this.camera.rotateX(this.player.pitch);
+      if (this.mode === 'dead') this.camera.rotateZ(Math.min(this.deadT * 0.4, 0.5));
+
+      // Viewmodel + caster light + actor shadows.
+      const c = this.character;
+      if (c) {
+        this.viewModel.setWeapon(c.equipment.weapon, this.effects.boundBladeDmg > 0);
+        const isBow = c.equipment.weapon ? (itemDef(c.equipment.weapon).weapon?.ranged ?? false) : false;
+        this.viewModel.update(1 / 144, this.combat.pose, this.combat.poseT, this.combat.chargeT, this.player.bobPhase, isBow);
+      }
+      this.casterLight.intensity = this.effects.lightOn ? 26 : 0;
+      this.casterLight.position.set(camX, this.camera.position.y + 0.4, camZ);
+      this.blobShadows.sync(this.spawns.actors, this.world.query);
     } else {
       this.menuDrift += 1 / 144;
       const p = this.menuCamPos(this.menuDrift);

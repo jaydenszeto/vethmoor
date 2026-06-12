@@ -44,6 +44,16 @@ export interface EventMap {
     encMax: number;
     levelReady: boolean;
   };
+  /** Spell-cast screen flash (school-colored edge glow). */
+  'cast:flash': { school: string };
+  /** Player took damage (red vignette pulse). */
+  'hud:damage': { amount: number };
+  /** Crosshair target health readout (name null clears). */
+  'hud:target': { name: string | null; frac: number };
+  /** Readied spell changed. */
+  'hud:spell': { name: string | null };
+  /** Conjuration asks the spawn system for an ash servant. */
+  'summon:request': { duration: number };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

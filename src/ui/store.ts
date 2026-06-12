@@ -108,7 +108,12 @@ export interface GameAPI {
   listSaves(): Promise<SaveMeta[]>;
   /** Camera yaw for the compass (read per animation frame). */
   getYaw(): number;
+  readySpell(id: SpellIdLike): void;
+  bindHotkey(id: SpellIdLike, slot: number): void;
 }
+
+/** Branded SpellId without importing the data layer into every consumer. */
+export type SpellIdLike = string & { readonly __brand: 'SpellId' };
 
 let api: GameAPI | null = null;
 

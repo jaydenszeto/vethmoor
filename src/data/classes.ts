@@ -13,6 +13,7 @@ export interface ClassDef {
   attrs: readonly [AttrId, AttrId]; // +10 each
   starterGear: readonly { id: ItemId; n: number }[];
   starterGold: number;
+  starterSpells: readonly string[];
 }
 
 export const CLASSES: readonly ClassDef[] = [
@@ -32,6 +33,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 40,
+    starterSpells: ['mend-wounds'],
   },
   {
     id: 'ashwalker',
@@ -50,6 +52,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 35,
+    starterSpells: ['wisplight'],
   },
   {
     id: 'cinderscribe',
@@ -66,6 +69,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 30,
+    starterSpells: ['emberbolt', 'wisplight', 'mend-wounds', 'skyward'],
   },
   {
     id: 'tidepriest',
@@ -82,6 +86,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 35,
+    starterSpells: ['mend-wounds', 'cleanse', 'stamina-surge'],
   },
   {
     id: 'duskrunner',
@@ -99,6 +104,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 60,
+    starterSpells: ['shroud', 'wisplight'],
   },
   {
     id: 'hearthsworn',
@@ -116,6 +122,7 @@ export const CLASSES: readonly ClassDef[] = [
       { id: itemId('pants-rough'), n: 1 },
     ],
     starterGold: 45,
+    starterSpells: ['stamina-surge'],
   },
 ];
 

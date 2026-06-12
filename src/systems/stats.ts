@@ -120,8 +120,17 @@ export function createCharacter(
     gold: classDef.starterGold,
     inventory: classDef.starterGear.map((g) => ({ id: g.id, n: g.n })),
     equipment: { ...EMPTY_EQUIP },
-    spellsKnown: [],
-    hotkeys: [null, null, null, null, null, null, null, null],
+    spellsKnown: [...classDef.starterSpells],
+    hotkeys: [
+      classDef.starterSpells[0] ?? null,
+      classDef.starterSpells[1] ?? null,
+      classDef.starterSpells[2] ?? null,
+      classDef.starterSpells[3] ?? null,
+      null,
+      null,
+      null,
+      null,
+    ],
   };
   recalcDerived(c, true);
   return c;

@@ -54,6 +54,8 @@ export class WorldManager {
   private activeCellData: BuiltCell | null = null;
   private exteriorReturn = { x: 0, y: 0, z: 0, yaw: 0 };
   private transitioning = false;
+  /** Runtime entities (corpses, dropped sacks) — cleared on cell transitions. */
+  readonly dynamicEntities: Entity[] = [];
 
   /** Set by Game so door interactions can move the player. */
   onPlayerPlace: ((x: number, y: number, z: number, yaw: number) => void) | null = null;
@@ -89,8 +91,11 @@ export class WorldManager {
 
   /** All interactables in the player's current cell. */
   activeEntities(): readonly Entity[] {
-    if (this.activeCellData) return this.activeCellData.entities;
-    const out: Entity[] = [];
+    const out: Entity[] = [...this.dynamicEntities];
+    if (this.activeCellData) {
+      out.push(...this.activeCellData.entities);
+      return out;
+    }
     for (const s of this.sites) {
       if (s.group) out.push(...s.entities);
     }
@@ -184,6 +189,7 @@ export class WorldManager {
     events.emit('screen:fade', { on: true });
     await wait(210);
 
+    this.dynamicEntities.length = 0;
     const cell = buildCell(target.cell);
     this.materializeCellEntities(cell);
     this.interiorGroup.add(cell.group);
@@ -206,6 +212,7 @@ export class WorldManager {
     events.emit('screen:fade', { on: true });
     await wait(210);
 
+    this.dynamicEntities.length = 0;
     this.interiorGroup.remove(cell.group);
     cell.group.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();

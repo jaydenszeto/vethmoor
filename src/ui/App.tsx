@@ -16,6 +16,8 @@ import { DebugOverlay } from '@/ui/hud/DebugOverlay';
 import { InventoryWindow } from '@/ui/windows/Inventory';
 import { CharacterSheet } from '@/ui/windows/CharacterSheet';
 import { ContainerLoot } from '@/ui/windows/ContainerLoot';
+import { Spellbook } from '@/ui/windows/Spellbook';
+import { CombatOverlays, DeathScreen } from '@/ui/hud/CombatHud';
 
 function Prompt() {
   const prompt = useUi((s) => s.prompt);
@@ -59,6 +61,8 @@ export function App() {
         </>
       )}
       {gameMode === 'play' && <Hud />}
+      {gameMode === 'play' && <CombatOverlays />}
+      {gameMode === 'dead' && <DeathScreen />}
       {gameMode === 'menu' && top === null && <MainMenu />}
       {gameMode === 'chargen' && top === null && <CharGen />}
       {top === 'pause' && <PauseMenu />}
@@ -67,6 +71,7 @@ export function App() {
       {top === 'inventory' && <InventoryWindow />}
       {top === 'character' && <CharacterSheet />}
       {top === 'container' && <ContainerLoot />}
+      {top === 'spellbook' && <Spellbook />}
       <Toasts />
       <Blackout />
       {import.meta.env.DEV && <DebugOverlay />}
