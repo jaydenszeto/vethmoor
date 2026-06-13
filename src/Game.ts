@@ -78,6 +78,7 @@ import {
 import { brew } from '@/systems/alchemy';
 import {
   journalView,
+  questComplete,
   questFlag,
   questStage,
   restoreQuests,
@@ -87,6 +88,8 @@ import {
   validateQuests,
   type QuestSave,
 } from '@/systems/quests';
+import { questDef, type QuestStageDef } from '@/data/quests';
+import { nearestBearing, type Vec2 } from '@/systems/wayfinding';
 import {
   activeDuty,
   addRep,
@@ -572,6 +575,7 @@ export class Game {
     }
     this.setMode('play');
     this.pushHudStats();
+    this.pushObjective();
     events.emit('toast', { text: `Loaded — ${save.label}`, kind: 'info' });
     this.restoring = false;
     return true;
@@ -963,6 +967,48 @@ export class Game {
 
   advanceQuest(quest: string, stage: number): void {
     setQuestStage(quest, stage, this.clock.day);
+    if (quest === 'main') this.pushObjective();
+  }
+
+  // ----- wayfinding (soft guidance) --------------------------------------------
+
+  /** The active main-quest stage def, or null when the storyline is done. */
+  private mainObjectiveStage(): QuestStageDef | null {
+    if (!config.wayfinding || questComplete('main')) return null;
+    return questDef('main')?.stages.find((s) => s.at === questStage('main')) ?? null;
+  }
+
+  /** Resolve a town/dungeon id to its world (x, z), or null if unknown. */
+  private locationPos(id: string): readonly [number, number] | null {
+    const t = TOWNS.find((t) => (t.id as string) === id);
+    if (t) return t.pos;
+    const d = DUNGEONS.find((d) => (d.id as string) === id);
+    return d ? d.pos : null;
+  }
+
+  /** Push the current objective line to the HUD (on stage change / load / new game). */
+  pushObjective(): void {
+    const stage = this.mainObjectiveStage();
+    events.emit('hud:objective', { text: stage?.objective ?? null });
+  }
+
+  /**
+   * Absolute bearing (compass convention) to the nearest objective target, or
+   * null when there is nothing to point at — quest done, no target this stage,
+   * underground (exterior bearings are meaningless), wayfinding off, or already
+   * on top of the target. The compass polls this each frame.
+   */
+  getObjectiveBearing(): number | null {
+    if (this.world.isInterior) return null;
+    const stage = this.mainObjectiveStage();
+    if (!stage?.targets?.length) return null;
+    const pts: Vec2[] = [];
+    for (const id of stage.targets) {
+      const pos = this.locationPos(id);
+      if (pos) pts.push(pos as Vec2);
+    }
+    const b = this.player.body;
+    return nearestBearing(b.x, b.z, pts);
   }
 
   private startFactionDuty(f: FactionId): void {

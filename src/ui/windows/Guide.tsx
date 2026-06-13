@@ -169,8 +169,9 @@ export function Guide() {
               lineHeight: 1.5,
             }}
           >
-            Vethmoor keeps no quest markers and few hand-holds — it trusts you to wander, to ask, to read what you find. That is the
-            whole pleasure of it. Tend the fire. Tend the sleeper.
+            Vethmoor leans on words, not waypoints: your current task rides under the compass, and an ember tick points the rough way —
+            no floating arrows, no distances. Prefer to find your own way by asking and reading? Switch wayfinding off in Settings. Tend the
+            fire. Tend the sleeper.
           </p>
         </div>
 

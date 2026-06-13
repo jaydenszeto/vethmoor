@@ -87,6 +87,8 @@ export interface EventMap {
   'ending:open': { phase: 'choice' | 'sever' | 'rebind' };
   /** A fresh character spawned — the field guide opens once as a greeting. */
   'guide:welcome': Record<string, never>;
+  /** Current wayfinding objective line (null clears it). Bearing is polled separately. */
+  'hud:objective': { text: string | null };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

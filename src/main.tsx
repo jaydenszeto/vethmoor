@@ -25,6 +25,7 @@ registerGameAPI({
   applySettings: (partial) => {
     applySettings(partial);
     if (partial.renderHeight) game.setRenderHeight(partial.renderHeight);
+    if ('wayfinding' in partial) game.pushObjective();
     audio.applyVolumes();
   },
   finishChargen: (name, race, classId, stone) => void game.finishChargen(name, race, classId, stone),
@@ -47,6 +48,7 @@ registerGameAPI({
   deleteSave: (slot) => deleteSave(slot),
   listSaves: () => listSaves(),
   getYaw: () => game.player.yaw,
+  getObjectiveBearing: () => game.getObjectiveBearing(),
   chooseTopic: (id) => game.chooseTopic(id),
   persuade: (kind) => game.persuadeWith(kind),
   openBarter: () => game.openBarter(),

@@ -25,6 +25,10 @@ browser. (`npm run dev` does the same without auto-opening.) Click the canvas to
 mouse and roll a character. **A field guide greets every new character** with the controls and
 your first task; press **H** to reopen it any time (it's also on the title and pause menus).
 
+You won't get lost: your current objective rides under the compass and a single **ember tick**
+on the compass points the rough way to it — direction only, no floating arrows or distances, the
+Morrowind way. Prefer to find your own way? **Settings → Wayfinding hints → Off.**
+
 `npm run typecheck` and `npm test` (62 tests) must both be green before any commit.
 
 ---

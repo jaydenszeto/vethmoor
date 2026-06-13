@@ -7,6 +7,18 @@
 export interface QuestStageDef {
   at: number;
   journal: string;
+  /**
+   * Short imperative shown on the HUD wayfinding line (the journal text is the
+   * long-form version). Omit on stages where the player is meant to decide or
+   * read rather than travel.
+   */
+  objective?: string;
+  /**
+   * Location ids (town or dungeon) the soft compass tick aims at — the nearest
+   * wins, so multi-target stages re-point as you cross the map. Omit to keep
+   * the compass quiet and let the player ask around.
+   */
+  targets?: readonly string[];
 }
 
 export interface QuestDef {
@@ -28,31 +40,43 @@ export const QUESTS: readonly QuestDef[] = [
         at: 10,
         journal:
           'A pardoned exile carries the writ that pardoned them. Mine is sealed with wax the color of a bruise, addressed to one Sela Veth — a seer in the fishing village of Saltmere, said to be dying faster than the March around her. I should deliver it.',
+        objective: 'Find the seer Sela Veth, here in Saltmere',
+        targets: ['saltmere'],
       },
       {
         at: 20,
         journal:
           'The seer broke my seal, read nothing, and laughed until she coughed. The writ was always for me, she says: a summons dressed as a pardon. The dreams everyone shares — the dark hall, the chair that is not empty — flow from beneath the Ember Tooth, and they are curdling. She wants proof old enough to trust: the Vargen Tablets, three dream-records buried with their dreamer in the Weeping Barrow, north-east of Saltmere among the fungal pillars.',
+        objective: 'Recover the Vargen Tablets from the Weeping Barrow',
+        targets: ['weeping-barrow'],
       },
       {
         at: 30,
         journal:
           'The tablets were exactly where four centuries of grave-quiet left them, under a sanctum guarded by what the barrow grew to keep them. They are heavier than stone should be, and warm. Sela Veth will want to read them before whatever is left of her goes wherever seers go.',
+        objective: 'Carry the tablets back to Sela Veth, in Saltmere',
+        targets: ['saltmere'],
       },
       {
         at: 40,
         journal:
           'Sela read the tablets with her thumbs, like a woman reading rain. It is as the Choir always sang: Ulmoth, the Drowned King, dreams the March alive — and something in his sleep has torn. The seer cannot mend a god. She bids me carry the question to the three powers of Vethmoor: Captain Dren of the Iron Vigil in Vornstead, Magister Cindral of the Conclave in Veskar, and Factor Skarn of House Skarn in Kraghold. Each will want the March saved their own way.',
+        objective: 'Consult the three powers — Vornstead, Veskar, Kraghold',
+        targets: ['vornstead', 'veskar', 'kraghold'],
       },
       {
         at: 50,
         journal:
           'Three powers, three answers. The Vigil would cut the dream off at the root and count the cost later. The Conclave would mend the pattern and keep the wonder, whatever it keeps dreaming at us. House Skarn asked what severance does to the duskglass veins, and I did not have an answer. Sela Veth says the choosing was never theirs. The way down is the Undertooth — a throat of black rock in the volcano’s western flank. The Herald of the Drowned King stands the door.',
+        objective: 'Find the Undertooth in the volcano’s western flank',
+        targets: ['undertooth'],
       },
       {
         at: 60,
         journal:
           'The Undertooth swallows sound. Somewhere below, the Herald is waiting — the dream given teeth so that no waking thing reaches the throne.',
+        objective: 'Descend the Undertooth and destroy the Herald',
+        targets: ['undertooth'],
       },
       {
         at: 65,

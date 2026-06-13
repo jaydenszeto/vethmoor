@@ -58,7 +58,38 @@ export function Hud() {
         )}
       </div>
       <Compass />
+      <Objective />
     </>
+  );
+}
+
+/** Soft wayfinding: the active objective in words, just under the compass. */
+function Objective() {
+  const text = useUi((s) => s.objective);
+  if (!text) return null;
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: '50%',
+        top: 46,
+        transform: 'translateX(-50%)',
+        maxWidth: 'min(460px, 70vw)',
+        textAlign: 'center',
+        pointerEvents: 'none',
+        fontSize: 'var(--text-sm)',
+        fontVariant: 'small-caps',
+        letterSpacing: '0.07em',
+        color: 'var(--ink-dim)',
+        textShadow: '0 1px 4px rgba(0,0,0,0.95)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      <span style={{ color: 'var(--ember)', marginRight: 7, fontVariant: 'normal' }}>›</span>
+      {text}
+    </div>
   );
 }
 
@@ -123,6 +154,38 @@ function Compass() {
       // Center needle.
       ctx.fillStyle = '#ff9a3c';
       ctx.fillRect(W / 2, 1, 1, 5);
+
+      // Objective tick — a single ember mark pointing the way (soft wayfinding).
+      // Rises from the base, so it never reads as "where you face" (the needle).
+      const bearing = gameApi().getObjectiveBearing();
+      if (bearing != null) {
+        let rel = bearing - yaw;
+        while (rel > Math.PI) rel -= Math.PI * 2;
+        while (rel < -Math.PI) rel += Math.PI * 2;
+        let x = W / 2 + rel * PXPERRAD;
+        const offField = x < 7 || x > W - 7;
+        x = Math.max(7, Math.min(W - 7, x));
+        ctx.save();
+        ctx.fillStyle = '#ff9a3c';
+        ctx.shadowColor = 'rgba(255,154,60,0.85)';
+        ctx.shadowBlur = 7;
+        ctx.beginPath();
+        if (offField) {
+          // Hugs the edge as a caret: "keep turning this way."
+          const right = x > W / 2;
+          ctx.moveTo(right ? x + 3 : x - 3, H - 6);
+          ctx.lineTo(right ? x - 3 : x + 3, H - 10);
+          ctx.lineTo(right ? x - 3 : x + 3, H - 2);
+        } else {
+          // Upward chevron at the bearing.
+          ctx.moveTo(x, H - 11);
+          ctx.lineTo(x - 4, H - 3);
+          ctx.lineTo(x + 4, H - 3);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
     };
     draw();
     return () => cancelAnimationFrame(raf);

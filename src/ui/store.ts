@@ -124,6 +124,8 @@ interface UiState {
   ending: 'choice' | 'sever' | 'rebind' | null;
   /** True only while the field guide is showing its first-spawn greeting. */
   guideWelcome: boolean;
+  /** Active wayfinding objective line (null = hidden). */
+  objective: string | null;
   saves: SaveMeta[];
   setSettings: (partial: Partial<GameSettings>) => void;
   dismissToast: (id: number) => void;
@@ -148,6 +150,7 @@ export const useUi = create<UiState>()((set) => ({
   questVersion: 0,
   ending: null,
   guideWelcome: false,
+  objective: null,
   saves: [],
   setSettings: (partial) =>
     set((s) => {
@@ -189,6 +192,8 @@ export interface GameAPI {
   listSaves(): Promise<SaveMeta[]>;
   /** Camera yaw for the compass (read per animation frame). */
   getYaw(): number;
+  /** Absolute bearing to the active objective for the compass tick, or null. Polled per frame. */
+  getObjectiveBearing(): number | null;
   readySpell(id: SpellIdLike): void;
   bindHotkey(id: SpellIdLike, slot: number): void;
   // ----- P6: dialogue / barter / travel / rest / books / alchemy ----------------
@@ -253,6 +258,7 @@ export function initUiBridge(): void {
   });
   events.on('ending:open', ({ phase }) => useUi.setState({ ending: phase }));
   events.on('guide:welcome', () => useUi.setState({ guideWelcome: true }));
+  events.on('hud:objective', ({ text }) => useUi.setState({ objective: text }));
   events.on('toast', ({ text, kind }) =>
     useUi.setState((s) => ({
       toasts: [...s.toasts.slice(-3), { id: toastId++, text, kind }],

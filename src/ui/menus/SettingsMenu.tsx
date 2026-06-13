@@ -57,6 +57,19 @@ export function SettingsMenu() {
         </div>
 
         <div className="vm-row">
+          <span className="vm-label" title="The objective line and the ember compass tick. Off for pure Morrowind.">
+            Wayfinding hints
+          </span>
+          <button
+            type="button"
+            className={`vm-btn-frame ${settings.wayfinding ? 'vm-btn-frame--active' : ''}`}
+            onClick={() => setSettings({ wayfinding: !settings.wayfinding })}
+          >
+            {settings.wayfinding ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        <div className="vm-row">
           <span className="vm-label">Fog density</span>
           <input
             type="range"

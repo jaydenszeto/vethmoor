@@ -13,6 +13,8 @@ export interface GameSettings {
   volMusic: number;
   volSfx: number;
   volAmbient: number;
+  /** Soft wayfinding: the objective line + the ember compass tick. Off = pure Morrowind. */
+  wayfinding: boolean;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   volMusic: 0.55,
   volSfx: 0.9,
   volAmbient: 0.7,
+  wayfinding: true,
 };
 
 export const config: GameSettings = { ...DEFAULT_SETTINGS };
